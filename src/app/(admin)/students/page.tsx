@@ -242,36 +242,31 @@ export default function StudentListPage() {
 
   const handleBulkPromote = async () => {
     if (!targetAcademicYearForBulkPromote) {
-      toast.error("Please select a target academic year for bulk promotion.");
+      toast.error("Please select a target studying year for bulk promotion.");
       return;
     }
 
     setIsBulkPromoting(true);
     const toastId = toast.loading(`Promoting ${selectedStudents.length} students...`);
     
-    const targetYearName = academicYearOptions.find(ay => ay.id === targetAcademicYearForBulkPromote)?.year_name;
-    if (!targetYearName) {
-      toast.error("Invalid target academic year selected.", { id: toastId });
-      setIsBulkPromoting(false);
-      return;
-    }
+    const targetStudyingYear = targetAcademicYearForBulkPromote; // Directly use the selected studying year name
 
     const studentsToUpdate = students.filter(s => selectedStudents.includes(s.id));
     const promotionPromises = studentsToUpdate.map(async (student) => {
       // Check if the student is already in the target year
-      if (student.studying_year === targetYearName) {
-        return { id: student.id, status: 'skipped', message: `${student.name} is already in ${targetYearName}.` };
+      if (student.studying_year === targetStudyingYear) {
+        return { id: student.id, status: 'skipped', message: `${student.name} is already in ${targetStudyingYear}.` };
       }
 
       const { error } = await supabase
         .from("students")
-        .update({ studying_year: targetYearName })
+        .update({ studying_year: targetStudyingYear })
         .eq("id", student.id);
       
       if (error) {
         return { id: student.id, status: 'failed', message: `Failed to promote ${student.name}: ${error.message}` };
       }
-      return { id: student.id, status: 'success', message: `${student.name} promoted to ${targetYearName}.` };
+      return { id: student.id, status: 'success', message: `${student.name} promoted to ${targetStudyingYear}.` };
     });
 
     const results = await Promise.all(promotionPromises);
