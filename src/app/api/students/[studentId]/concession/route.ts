@@ -1,16 +1,16 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// This is a server-side route using secure environment variables.
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-
-export async function PATCH(request: Request, { params }: any) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ studentId: string }> }) {
   try {
-    const { studentId } = params as { studentId: string };
+    // Create Supabase admin client inside the handler to avoid build-time execution
+    const supabaseAdmin = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
+    );
+
+    const { studentId } = await params;
     const { year, feeItemId, concession } = await request.json();
 
     if (!studentId || !year || !feeItemId || concession === undefined || concession < 0) {

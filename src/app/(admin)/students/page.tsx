@@ -97,7 +97,7 @@ export default function StudentListPage() {
       supabase.from("class_groups").select("id, name"),
       supabase.from("studying_years").select("id, name"),
       supabase.from("student_types").select("id, name"),
-      supabase.from("academic_years").select("id, year_name").order("year_name", { ascending: false }),
+      supabase.from("academic_years").select("id, year_name, is_active, created_at").order("year_name", { ascending: false }),
     ]);
 
     if (classRes.data) setClassOptions(classRes.data);
