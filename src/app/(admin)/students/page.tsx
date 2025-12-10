@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { PlusCircle, Search, MoreHorizontal, Pencil, Trash2, Eye } from "lucide-react";
+import { PlusCircle, Search, MoreHorizontal, Pencil, Trash2, Eye, ArrowUp } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -67,6 +67,9 @@ export default function StudentListPage() {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
   const [studentsToDelete, setStudentsToDelete] = useState<string[]>([]);
+  const [promoteAlertOpen, setPromoteAlertOpen] = useState(false);
+  const [studentToPromote, setStudentToPromote] = useState<Student | null>(null);
+  const [isPromoting, setIsPromoting] = useState(false);
 
   const fetchStudents = async () => {
     setIsLoading(true);
@@ -140,6 +143,49 @@ export default function StudentListPage() {
   const handleView = (studentId: string) => {
     setStudentToView(studentId);
     setViewDialogOpen(true);
+  };
+
+  const getNextStudyingYear = (currentYear: string): string => {
+    const yearMap: { [key: string]: string } = {
+      '1st Year': '2nd Year',
+      '2nd Year': '3rd Year',
+      '3rd Year': 'Graduated',
+    };
+    return yearMap[currentYear] || currentYear;
+  };
+
+  const handlePromoteClick = (student: Student) => {
+    setStudentToPromote(student);
+    setPromoteAlertOpen(true);
+  };
+
+  const handlePromote = async () => {
+    if (!studentToPromote) return;
+    setIsPromoting(true);
+    const toastId = toast.loading(`Promoting ${studentToPromote.name}...`);
+
+    const nextStudyingYear = getNextStudyingYear(studentToPromote.studying_year);
+
+    if (nextStudyingYear === studentToPromote.studying_year) {
+      toast.info(`${studentToPromote.name} is already in their final year or cannot be promoted further.`, { id: toastId });
+      setIsPromoting(false);
+      setPromoteAlertOpen(false);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("students")
+      .update({ studying_year: nextStudyingYear })
+      .eq("id", studentToPromote.id);
+
+    if (error) {
+      toast.error(`Failed to promote student: ${error.message}`, { id: toastId });
+    } else {
+      toast.success(`${studentToPromote.name} promoted to ${nextStudyingYear} successfully!`, { id: toastId });
+      fetchStudents(); // Refresh the list
+    }
+    setIsPromoting(false);
+    setPromoteAlertOpen(false);
   };
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
@@ -233,6 +279,7 @@ export default function StudentListPage() {
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
                           <DropdownMenuItem onSelect={() => handleView(student.id)}><Eye className="mr-2 h-4 w-4" />View</DropdownMenuItem>
                           <DropdownMenuItem asChild><Link href={`/students/${student.id}/edit`}><Pencil className="mr-2 h-4 w-4" />Edit</Link></DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handlePromoteClick(student)}><ArrowUp className="mr-2 h-4 w-4" />Promote</DropdownMenuItem>
                           <DropdownMenuItem className="text-red-600" onSelect={() => openDeleteDialog([student.id])}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -265,6 +312,24 @@ export default function StudentListPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={promoteAlertOpen} onOpenChange={setPromoteAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Promotion</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to promote {studentToPromote?.name} from {studentToPromote?.studying_year} to {getNextStudyingYear(studentToPromote?.studying_year || '')}?
+              This action will update their studying year.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handlePromote} disabled={isPromoting}>
+              {isPromoting ? "Promoting..." : "Promote Student"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
