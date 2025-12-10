@@ -43,6 +43,8 @@ import {
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StudentViewDialog } from "@/components/admin/student-view-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 type Student = {
   id: string;
@@ -53,6 +55,8 @@ type Student = {
   studying_year: string;
   student_types: { name: string } | null;
 };
+
+type FilterOption = { id: string; name: string };
 
 const PAGE_SIZE = 10;
 
@@ -70,6 +74,34 @@ export default function StudentListPage() {
   const [promoteAlertOpen, setPromoteAlertOpen] = useState(false);
   const [studentToPromote, setStudentToPromote] = useState<Student | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
+  const [bulkPromoteAlertOpen, setBulkPromoteAlertOpen] = useState(false);
+  const [isBulkPromoting, setIsBulkPromoting] = useState(false);
+
+  // Filter states
+  const [selectedClass, setSelectedClass] = useState("all");
+  const [selectedStudyingYear, setSelectedStudyingYear] = useState("all");
+  const [selectedStudentType, setSelectedStudentType] = useState("all");
+
+  // Filter options
+  const [classOptions, setClassOptions] = useState<FilterOption[]>([]);
+  const [studyingYearOptions, setStudyingYearOptions] = useState<FilterOption[]>([]);
+  const [studentTypeOptions, setStudentTypeOptions] = useState<FilterOption[]>([]);
+
+  const fetchFilterOptions = async () => {
+    const [classRes, studyingYearRes, studentTypeRes] = await Promise.all([
+      supabase.from("class_groups").select("id, name"),
+      supabase.from("studying_years").select("id, name"),
+      supabase.from("student_types").select("id, name"),
+    ]);
+
+    if (classRes.data) setClassOptions(classRes.data);
+    if (studyingYearRes.data) setStudyingYearOptions(studyingYearRes.data);
+    if (studentTypeRes.data) setStudentTypeOptions(studentTypeRes.data);
+  };
+
+  useEffect(() => {
+    fetchFilterOptions();
+  }, []);
 
   const fetchStudents = async () => {
     setIsLoading(true);
@@ -82,6 +114,15 @@ export default function StudentListPage() {
 
     if (searchTerm) {
       query = query.or(`name.ilike.%${searchTerm}%,roll_number.ilike.%${searchTerm}%`);
+    }
+    if (selectedClass !== 'all') {
+      query = query.eq('class', selectedClass);
+    }
+    if (selectedStudyingYear !== 'all') {
+      query = query.eq('studying_year', selectedStudyingYear);
+    }
+    if (selectedStudentType !== 'all') {
+      query = query.eq('student_type_id', selectedStudentType);
     }
     
     query = query.order("created_at", { ascending: false }).range(from, to);
@@ -111,7 +152,7 @@ export default function StudentListPage() {
       fetchStudents();
     }, 300);
     return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm, currentPage]);
+  }, [searchTerm, currentPage, selectedClass, selectedStudyingYear, selectedStudentType]);
 
   const handleSelectAll = (checked: boolean) => {
     setSelectedStudents(checked ? students.map((s) => s.id) : []);
@@ -188,6 +229,51 @@ export default function StudentListPage() {
     setPromoteAlertOpen(false);
   };
 
+  const handleBulkPromote = async () => {
+    setIsBulkPromoting(true);
+    const toastId = toast.loading(`Promoting ${selectedStudents.length} students...`);
+    
+    const studentsToUpdate = students.filter(s => selectedStudents.includes(s.id));
+    const promotionPromises = studentsToUpdate.map(async (student) => {
+      const nextStudyingYear = getNextStudyingYear(student.studying_year);
+      if (nextStudyingYear === student.studying_year) {
+        return { id: student.id, status: 'skipped', message: `${student.name} is already in their final year or cannot be promoted further.` };
+      }
+      const { error } = await supabase
+        .from("students")
+        .update({ studying_year: nextStudyingYear })
+        .eq("id", student.id);
+      
+      if (error) {
+        return { id: student.id, status: 'failed', message: `Failed to promote ${student.name}: ${error.message}` };
+      }
+      return { id: student.id, status: 'success', message: `${student.name} promoted to ${nextStudyingYear}.` };
+    });
+
+    const results = await Promise.all(promotionPromises);
+
+    const successfulPromotions = results.filter(r => r.status === 'success').length;
+    const failedPromotions = results.filter(r => r.status === 'failed').length;
+    const skippedPromotions = results.filter(r => r.status === 'skipped').length;
+
+    if (successfulPromotions > 0) {
+      toast.success(`${successfulPromotions} students promoted successfully!`, { id: toastId });
+    }
+    if (failedPromotions > 0) {
+      const errorMessages = results.filter(r => r.status === 'failed').map(r => r.message).join('\n');
+      toast.error(`Failed to promote ${failedPromotions} students:\n${errorMessages}`, { id: toastId, duration: 10000 });
+    }
+    if (skippedPromotions > 0) {
+      const skippedMessages = results.filter(r => r.status === 'skipped').map(r => r.message).join('\n');
+      toast.info(`${skippedPromotions} students skipped:\n${skippedMessages}`, { id: toastId, duration: 10000 });
+    }
+
+    fetchStudents();
+    setSelectedStudents([]);
+    setBulkPromoteAlertOpen(false);
+    setIsBulkPromoting(false);
+  };
+
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   return (
@@ -201,10 +287,16 @@ export default function StudentListPage() {
             </div>
             <div className="flex items-center gap-2">
               {selectedStudents.length > 0 && (
-                <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(selectedStudents)}>
-                  <Trash2 className="h-3.5 w-3.5 mr-1" />
-                  Delete ({selectedStudents.length})
-                </Button>
+                <>
+                  <Button variant="outline" size="sm" onClick={() => setBulkPromoteAlertOpen(true)}>
+                    <ArrowUp className="h-3.5 w-3.5 mr-1" />
+                    Promote ({selectedStudents.length})
+                  </Button>
+                  <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(selectedStudents)}>
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Delete ({selectedStudents.length})
+                  </Button>
+                </>
               )}
               <Link href="/students/add">
                 <Button size="sm" className="gap-1">
@@ -214,18 +306,54 @@ export default function StudentListPage() {
               </Link>
             </div>
           </div>
-          <div className="relative mt-4">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search by name or roll number..."
-              className="w-full rounded-lg bg-background pl-8 md:w-[300px]"
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-            />
+          <div className="flex flex-wrap items-end gap-4 pt-4">
+            <div className="flex-grow">
+              <Label htmlFor="search-term">Search</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="search-term"
+                  type="search"
+                  placeholder="Name or roll number..."
+                  className="w-full rounded-lg bg-background pl-8"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex-grow">
+              <Label htmlFor="class-filter">Class</Label>
+              <Select value={selectedClass} onValueChange={(value) => { setSelectedClass(value); setCurrentPage(1); }}>
+                <SelectTrigger id="class-filter"><SelectValue placeholder="All Classes" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Classes</SelectItem>
+                  {classOptions.map(option => <SelectItem key={option.id} value={option.name}>{option.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-grow">
+              <Label htmlFor="studying-year-filter">Studying Year</Label>
+              <Select value={selectedStudyingYear} onValueChange={(value) => { setSelectedStudyingYear(value); setCurrentPage(1); }}>
+                <SelectTrigger id="studying-year-filter"><SelectValue placeholder="All Years" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Years</SelectItem>
+                  {studyingYearOptions.map(option => <SelectItem key={option.id} value={option.name}>{option.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-grow">
+              <Label htmlFor="student-type-filter">Student Type</Label>
+              <Select value={selectedStudentType} onValueChange={(value) => { setSelectedStudentType(value); setCurrentPage(1); }}>
+                <SelectTrigger id="student-type-filter"><SelectValue placeholder="All Types" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {studentTypeOptions.map(option => <SelectItem key={option.id} value={option.id}>{option.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -329,6 +457,29 @@ export default function StudentListPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handlePromote} disabled={isPromoting}>
               {isPromoting ? "Promoting..." : "Promote Student"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkPromoteAlertOpen} onOpenChange={setBulkPromoteAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Bulk Promotion</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are about to promote {selectedStudents.length} selected student(s).
+              <ul className="list-disc pl-5 mt-2 text-sm text-muted-foreground">
+                {students.filter(s => selectedStudents.includes(s.id)).map(s => (
+                  <li key={s.id}>{s.name} ({s.studying_year} &rarr; {getNextStudyingYear(s.studying_year)})</li>
+                ))}
+              </ul>
+              This action will update their studying year.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkPromote} disabled={isBulkPromoting}>
+              {isBulkPromoting ? "Promoting..." : "Confirm Bulk Promote"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
