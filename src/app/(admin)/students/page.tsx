@@ -45,6 +45,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { StudentViewDialog } from "@/components/admin/student-view-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { AcademicYear } from "@/types"; // Assuming AcademicYear type is available
 
 type Student = {
   id: string;
@@ -54,6 +55,7 @@ type Student = {
   section: string;
   studying_year: string;
   student_types: { name: string } | null;
+  academic_year_id: string | null; // Added for filtering
 };
 
 type FilterOption = { id: string; name: string };
@@ -81,22 +83,27 @@ export default function StudentListPage() {
   const [selectedClass, setSelectedClass] = useState("all");
   const [selectedStudyingYear, setSelectedStudyingYear] = useState("all");
   const [selectedStudentType, setSelectedStudentType] = useState("all");
+  const [selectedAcademicYearFilter, setSelectedAcademicYearFilter] = useState("all"); // New filter state
+  const [targetAcademicYearForBulkPromote, setTargetAcademicYearForBulkPromote] = useState<string | null>(null); // New state for bulk promote target
 
   // Filter options
   const [classOptions, setClassOptions] = useState<FilterOption[]>([]);
   const [studyingYearOptions, setStudyingYearOptions] = useState<FilterOption[]>([]);
   const [studentTypeOptions, setStudentTypeOptions] = useState<FilterOption[]>([]);
+  const [academicYearOptions, setAcademicYearOptions] = useState<AcademicYear[]>([]); // New options state
 
   const fetchFilterOptions = async () => {
-    const [classRes, studyingYearRes, studentTypeRes] = await Promise.all([
+    const [classRes, studyingYearRes, studentTypeRes, academicYearRes] = await Promise.all([
       supabase.from("class_groups").select("id, name"),
       supabase.from("studying_years").select("id, name"),
       supabase.from("student_types").select("id, name"),
+      supabase.from("academic_years").select("id, year_name").order("year_name", { ascending: false }),
     ]);
 
     if (classRes.data) setClassOptions(classRes.data);
     if (studyingYearRes.data) setStudyingYearOptions(studyingYearRes.data);
     if (studentTypeRes.data) setStudentTypeOptions(studentTypeRes.data);
+    if (academicYearRes.data) setAcademicYearOptions(academicYearRes.data);
   };
 
   useEffect(() => {
@@ -110,7 +117,7 @@ export default function StudentListPage() {
 
     let query = supabase
       .from("students")
-      .select("id, roll_number, name, class, section, studying_year, student_types(name)", { count: 'exact' });
+      .select("id, roll_number, name, class, section, studying_year, student_types(name), academic_year_id", { count: 'exact' });
 
     if (searchTerm) {
       query = query.or(`name.ilike.%${searchTerm}%,roll_number.ilike.%${searchTerm}%`);
@@ -123,6 +130,9 @@ export default function StudentListPage() {
     }
     if (selectedStudentType !== 'all') {
       query = query.eq('student_type_id', selectedStudentType);
+    }
+    if (selectedAcademicYearFilter !== 'all') { // Apply new academic year filter
+      query = query.eq('academic_year_id', selectedAcademicYearFilter);
     }
     
     query = query.order("created_at", { ascending: false }).range(from, to);
@@ -139,7 +149,8 @@ export default function StudentListPage() {
         class: item.class,
         section: item.section,
         studying_year: item.studying_year,
-        student_types: item.student_types ? { name: item.student_types.name } : null
+        student_types: item.student_types ? { name: item.student_types.name } : null,
+        academic_year_id: item.academic_year_id,
       }));
       setStudents(mappedStudents);
       setTotalCount(count || 0);
@@ -152,7 +163,7 @@ export default function StudentListPage() {
       fetchStudents();
     }, 300);
     return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm, currentPage, selectedClass, selectedStudyingYear, selectedStudentType]);
+  }, [searchTerm, currentPage, selectedClass, selectedStudyingYear, selectedStudentType, selectedAcademicYearFilter]);
 
   const handleSelectAll = (checked: boolean) => {
     setSelectedStudents(checked ? students.map((s) => s.id) : []);
@@ -230,24 +241,37 @@ export default function StudentListPage() {
   };
 
   const handleBulkPromote = async () => {
+    if (!targetAcademicYearForBulkPromote) {
+      toast.error("Please select a target academic year for bulk promotion.");
+      return;
+    }
+
     setIsBulkPromoting(true);
     const toastId = toast.loading(`Promoting ${selectedStudents.length} students...`);
     
+    const targetYearName = academicYearOptions.find(ay => ay.id === targetAcademicYearForBulkPromote)?.year_name;
+    if (!targetYearName) {
+      toast.error("Invalid target academic year selected.", { id: toastId });
+      setIsBulkPromoting(false);
+      return;
+    }
+
     const studentsToUpdate = students.filter(s => selectedStudents.includes(s.id));
     const promotionPromises = studentsToUpdate.map(async (student) => {
-      const nextStudyingYear = getNextStudyingYear(student.studying_year);
-      if (nextStudyingYear === student.studying_year) {
-        return { id: student.id, status: 'skipped', message: `${student.name} is already in their final year or cannot be promoted further.` };
+      // Check if the student is already in the target year
+      if (student.studying_year === targetYearName) {
+        return { id: student.id, status: 'skipped', message: `${student.name} is already in ${targetYearName}.` };
       }
+
       const { error } = await supabase
         .from("students")
-        .update({ studying_year: nextStudyingYear })
+        .update({ studying_year: targetYearName })
         .eq("id", student.id);
       
       if (error) {
         return { id: student.id, status: 'failed', message: `Failed to promote ${student.name}: ${error.message}` };
       }
-      return { id: student.id, status: 'success', message: `${student.name} promoted to ${nextStudyingYear}.` };
+      return { id: student.id, status: 'success', message: `${student.name} promoted to ${targetYearName}.` };
     });
 
     const results = await Promise.all(promotionPromises);
@@ -272,6 +296,7 @@ export default function StudentListPage() {
     setSelectedStudents([]);
     setBulkPromoteAlertOpen(false);
     setIsBulkPromoting(false);
+    setTargetAcademicYearForBulkPromote(null); // Reset target year
   };
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
@@ -351,6 +376,16 @@ export default function StudentListPage() {
                 <SelectContent>
                   <SelectItem value="all">All Types</SelectItem>
                   {studentTypeOptions.map(option => <SelectItem key={option.id} value={option.id}>{option.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-grow">
+              <Label htmlFor="academic-year-filter">Academic Year</Label>
+              <Select value={selectedAcademicYearFilter} onValueChange={(value) => { setSelectedAcademicYearFilter(value); setCurrentPage(1); }}>
+                <SelectTrigger id="academic-year-filter"><SelectValue placeholder="All Academic Years" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Academic Years</SelectItem>
+                  {academicYearOptions.map(option => <SelectItem key={option.id} value={option.id}>{option.year_name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -470,15 +505,33 @@ export default function StudentListPage() {
               You are about to promote {selectedStudents.length} selected student(s).
               <ul className="list-disc pl-5 mt-2 text-sm text-muted-foreground">
                 {students.filter(s => selectedStudents.includes(s.id)).map(s => (
-                  <li key={s.id}>{s.name} ({s.studying_year} &rarr; {getNextStudyingYear(s.studying_year)})</li>
+                  <li key={s.id}>{s.name} (Current: {s.studying_year})</li>
                 ))}
               </ul>
-              This action will update their studying year.
+              <div className="mt-4">
+                <Label htmlFor="target-academic-year">Promote to Studying Year:</Label>
+                <Select
+                  value={targetAcademicYearForBulkPromote || ""}
+                  onValueChange={setTargetAcademicYearForBulkPromote}
+                >
+                  <SelectTrigger id="target-academic-year" className="w-full mt-1">
+                    <SelectValue placeholder="Select target year" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {studyingYearOptions.map(option => (
+                      <SelectItem key={option.id} value={option.name}>{option.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="mt-4 text-sm text-red-600">
+                This action will update the 'Studying Year' for all selected students to the chosen year.
+              </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleBulkPromote} disabled={isBulkPromoting}>
+            <AlertDialogAction onClick={handleBulkPromote} disabled={isBulkPromoting || !targetAcademicYearForBulkPromote}>
               {isBulkPromoting ? "Promoting..." : "Confirm Bulk Promote"}
             </AlertDialogAction>
           </AlertDialogFooter>
