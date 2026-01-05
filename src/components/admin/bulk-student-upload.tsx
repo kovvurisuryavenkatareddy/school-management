@@ -37,6 +37,8 @@ export function BulkStudentUpload({ onSuccess, studyingYears, studentTypes, acad
     studyingYears.forEach(sYear => {
       FIXED_TERMS.forEach(term => {
         BASE_FEE_TYPES.forEach(feeType => {
+          // Only show JVD Fee for Term 3 in CSV sample
+          if (feeType === 'JVD Fee' && term.name !== 'Term 3') return;
           feeHeaders.push(`${sYear.name.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_${feeType.toLowerCase().replace(' ', '_')}`);
         });
       });
@@ -52,47 +54,20 @@ export function BulkStudentUpload({ onSuccess, studyingYears, studentTypes, acad
     studyingYears.forEach(sYear => {
       FIXED_TERMS.forEach(term => {
         BASE_FEE_TYPES.forEach(feeType => {
-          if (feeType === 'Tuition Fee') sampleFeeData1.push("15000");
-          else sampleFeeData1.push("0");
+           if (feeType === 'JVD Fee' && term.name !== 'Term 3') return;
+           if (feeType === 'Tuition Fee') sampleFeeData1.push("15000");
+           else sampleFeeData1.push("0");
         });
       });
     });
     const sampleRow1 = [...sampleDataRow1, ...sampleFeeData1];
 
-    const sampleDataRow2 = [
-      "102", "Jane Smith", "BSc", "B", "jane.smith@example.com", "0987654321", 
-      "JVD Scholar", "2024-2025", "1st Year", "OBC",
-    ];
-    const sampleFeeData2: string[] = [];
-    studyingYears.forEach(sYear => {
-      FIXED_TERMS.forEach(term => {
-        if (sYear.name === '1st Year' && studentTypes.find(st => st.name === 'JVD Scholar')?.name.toLowerCase().includes('jvd')) {
-          if (term.name === 'Term 1' || term.name === 'Term 2') {
-            BASE_FEE_TYPES.forEach(feeType => {
-              if (feeType === 'Tuition Fee') sampleFeeData2.push("15000");
-              else sampleFeeData2.push("0");
-            });
-          } else if (term.name === 'Term 3') {
-            BASE_FEE_TYPES.forEach(feeType => {
-              if (feeType === 'JVD Fee') sampleFeeData2.push("15000");
-              else sampleFeeData2.push("0");
-            });
-          } else {
-            BASE_FEE_TYPES.forEach(() => sampleFeeData2.push("0"));
-          }
-        } else {
-          BASE_FEE_TYPES.forEach(() => sampleFeeData2.push("0"));
-        }
-      });
-    });
-    const sampleRow2 = [...sampleDataRow2, ...sampleFeeData2];
-
-    const csv = [headers.join(','), sampleRow1.join(','), sampleRow2.join(',')].join('\n');
+    const csv = [headers.join(','), sampleRow1.join(',')].join('\n');
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", "sample_students_with_term_fees.csv");
+    link.setAttribute("download", "sample_students_fees.csv");
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
@@ -116,10 +91,6 @@ export function BulkStudentUpload({ onSuccess, studyingYears, studentTypes, acad
             throw new Error("CSV file is empty or invalid.");
           }
 
-          // Create maps for existing data
-          const classMap = new Map(classGroups?.map(i => [i.name.toLowerCase(), i.id]));
-          const sectionMap = new Map(sections?.map(i => [i.name.toLowerCase(), i.id]));
-          const studyingYearMap = new Map(studyingYears?.map(i => [i.name.toLowerCase(), i.id]));
           const studentTypeMap = new Map(studentTypes?.map(i => [i.name.toLowerCase(), i.id]));
           const academicYearMap = new Map(academicYears?.map(i => [i.year_name, i.id]));
 
@@ -135,55 +106,43 @@ export function BulkStudentUpload({ onSuccess, studyingYears, studentTypes, acad
             const studying_year_name = row.studying_year?.trim();
 
             if (!row.roll_number || !row.name || !class_name || !section_name || !studying_year_name) {
-              skippedRows.push({ row: index + 2, reason: "Missing required fields (roll_number, name, class, section, studying_year)." });
+              skippedRows.push({ row: index + 2, reason: "Missing required fields." });
               return;
             }
-            if (!academic_year_id) {
-              skippedRows.push({ row: index + 2, reason: `Invalid or missing academic year: ${row.academic_year}` });
-              return;
-            }
-            if (!student_type_id) {
-              skippedRows.push({ row: index + 2, reason: `Invalid or missing student type: ${row.student_type}` });
+            if (!academic_year_id || !student_type_id) {
+              skippedRows.push({ row: index + 2, reason: `Invalid academic year (${row.academic_year}) or student type (${row.student_type}).` });
               return;
             }
 
             const fee_details: FeeStructure = {};
+            const isJvd = student_type_name?.toLowerCase().includes('jvd');
 
             studyingYears.forEach(sYear => {
               const yearName = sYear.name;
               fee_details[yearName] = [];
 
               FIXED_TERMS.forEach(term => {
-                const managementFeeKey = `${yearName.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_management_fee`;
-                const jvdFeeKey = `${yearName.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_jvd_fee`;
-                const tuitionFeeKey = `${yearName.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_tuition_fee`;
+                // 1. Management Fee
+                const mgtKey = `${yearName.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_management_fee`;
+                fee_details[yearName].push({ id: uuidv4(), name: 'Management Fee', amount: parseFloat(row[mgtKey]) || 0, concession: 0, term_name: term.name });
 
-                const managementFee = parseFloat(row[managementFeeKey]) || 0;
-                const jvdFee = parseFloat(row[jvdFeeKey]) || 0;
-                const tuitionFee = parseFloat(row[tuitionFeeKey]) || 0;
+                // 2. Tuition Fee
+                const tuitionKey = `${yearName.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_tuition_fee`;
+                let tuitionAmount = parseFloat(row[tuitionKey]) || 0;
+                
+                if (isJvd && yearName === '1st Year') {
+                  if (term.name === 'Term 1' || term.name === 'Term 2') tuitionAmount = 15000;
+                  else if (term.name === 'Term 3') tuitionAmount = 0;
+                }
+                fee_details[yearName].push({ id: uuidv4(), name: 'Tuition Fee', amount: tuitionAmount, concession: 0, term_name: term.name });
 
-                if (yearName === '1st Year' && student_type_name?.toLowerCase().includes('jvd')) {
-                  // Apply fixed JVD logic for 1st Year JVD students
-                  if (term.name === 'Term 1' || term.name === 'Term 2') {
-                    fee_details[yearName].push({ id: uuidv4(), name: 'Tuition Fee', amount: 15000, concession: 0, term_name: term.name });
-                  } else if (term.name === 'Term 3') {
-                    fee_details[yearName].push({ id: uuidv4(), name: 'JVD Fee', amount: 15000, concession: 0, term_name: term.name });
-                  }
-                } else {
-                  // For other years or non-JVD students, use CSV values or default
-                  if (managementFee > 0) {
-                    fee_details[yearName].push({ id: uuidv4(), name: 'Management Fee', amount: managementFee, concession: 0, term_name: term.name });
-                  }
-                  if (jvdFee > 0) {
-                    fee_details[yearName].push({ id: uuidv4(), name: 'JVD Fee', amount: jvdFee, concession: 0, term_name: term.name });
-                  }
-                  if (tuitionFee > 0) {
-                    fee_details[yearName].push({ id: uuidv4(), name: 'Tuition Fee', amount: tuitionFee, concession: 0, term_name: term.name });
-                  }
-                  // Ensure at least a default structure if no fees are provided for a term
-                  if (fee_details[yearName].filter(item => item.term_name === term.name).length === 0) {
-                    fee_details[yearName].push({ id: uuidv4(), name: 'Tuition Fee', amount: 0, concession: 0, term_name: term.name });
-                  }
+                // 3. JVD Fee - Term 3 only
+                if (term.name === 'Term 3') {
+                  const jvdKey = `${yearName.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_jvd_fee`;
+                  let jvdAmount = parseFloat(row[jvdKey]) || 0;
+                  if (isJvd && yearName === '1st Year') jvdAmount = 15000;
+                  
+                  fee_details[yearName].push({ id: uuidv4(), name: 'JVD Fee', amount: jvdAmount, concession: 0, term_name: term.name });
                 }
               });
             });
@@ -203,30 +162,13 @@ export function BulkStudentUpload({ onSuccess, studyingYears, studentTypes, acad
             });
           });
 
-          if (skippedRows.length > 0) {
-            const skippedRowsDescription = skippedRows.slice(0, 5).map(skipped => `Row ${skipped.row}: ${skipped.reason}`).join('\n');
-            const fullDescription = `Skipped ${skippedRows.length} of ${rows.length} rows.\n\nErrors:\n${skippedRowsDescription}${skippedRows.length > 5 ? '\n...' : ''}`;
-            
-            toast.warning("Some rows were skipped during upload.", {
-                description: <pre className="mt-2 w-full rounded-md bg-muted p-4 text-muted-foreground"><code className="text-sm">{fullDescription}</code></pre>,
-                duration: 15000,
-            });
-          }
-
           if (studentsToInsert.length > 0) {
             const { error } = await supabase.from('students').insert(studentsToInsert);
-            if (error) {
-              throw new Error(`Bulk upload failed: ${error.message}`);
-            } else {
-              toast.success(`${studentsToInsert.length} students uploaded successfully!`, { id: toastId });
-              onSuccess();
-            }
+            if (error) throw new Error(`Bulk upload failed: ${error.message}`);
+            toast.success(`${studentsToInsert.length} students uploaded successfully!`, { id: toastId });
+            onSuccess();
           } else {
-            if (skippedRows.length === 0) {
-              throw new Error("No valid students found in the CSV file.");
-            } else {
-              toast.dismiss(toastId);
-            }
+            throw new Error("No valid students found in the CSV file.");
           }
         } catch (error: any) {
           toast.error(error.message, { id: toastId });
@@ -242,7 +184,7 @@ export function BulkStudentUpload({ onSuccess, studyingYears, studentTypes, acad
     <Card>
       <CardHeader>
         <CardTitle>Bulk Student Upload</CardTitle>
-        <CardDescription>Upload a CSV file to add multiple students at once. Please ensure the column headers match the sample file.</CardDescription>
+        <CardDescription>Upload a CSV file to add multiple students at once. Note: JVD Fee is restricted to Term 3.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-col sm:flex-row gap-4">
@@ -251,7 +193,6 @@ export function BulkStudentUpload({ onSuccess, studyingYears, studentTypes, acad
             Download Sample CSV
           </Button>
           <div className="flex items-center gap-2">
-            <label htmlFor="csv-upload" className="sr-only">Upload CSV</label>
             <Input
               id="csv-upload"
               type="file"
@@ -262,11 +203,6 @@ export function BulkStudentUpload({ onSuccess, studyingYears, studentTypes, acad
             />
             {isUploading && <Loader2 className="h-5 w-5 animate-spin" />}
           </div>
-        </div>
-        <div className="text-sm text-muted-foreground">
-          <p><strong>Required Columns:</strong> roll_number, name, class, section, student_type, academic_year, studying_year</p>
-          <p><strong>Optional Columns:</strong> email, phone, caste, and term-wise fee columns (e.g., <code>1st_year_term_1_management_fee</code>)</p>
-          <p className="mt-2"><strong>Note for JVD Students:</strong> For 1st Year JVD students, the fee structure will be automatically set to 15,000 Tuition Fee for Term 1, 15,000 Tuition Fee for Term 2, and 15,000 JVD Fee for Term 3, regardless of CSV input for these specific fields.</p>
         </div>
       </CardContent>
     </Card>

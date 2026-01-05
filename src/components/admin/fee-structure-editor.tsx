@@ -22,7 +22,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { PlusCircle, Trash2 } from "lucide-react";
@@ -59,7 +58,7 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
   }, [studyingYears, selectedStudyingYear]);
 
   const currentYearFeeItems = value[selectedStudyingYear] || [];
-  const allFeeTypes = getFeeTypesFromStructure(value); // This will include BASE_FEE_TYPES and any custom ones
+  const allFeeTypes = getFeeTypesFromStructure(value);
   const sortedTerms = FIXED_TERMS.sort((a, b) => a.name.localeCompare(b.name));
 
   const handleAddFeeType = () => {
@@ -115,25 +114,35 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
     inputValue: string
   ) => {
     const newValue = JSON.parse(JSON.stringify(value));
-    const feeItem = newValue[studyingYear]?.find(
+    let feeItem = newValue[studyingYear]?.find(
       (item: FeeItem) => item.term_name === termName && item.name === feeTypeName
     );
 
-    if (feeItem) {
-      feeItem[field] = parseFloat(inputValue) || 0;
-      onChange(newValue);
+    // If item doesn't exist (e.g., custom fee type was added but not for this specific term yet)
+    if (!feeItem) {
+      if (!newValue[studyingYear]) newValue[studyingYear] = [];
+      feeItem = {
+        id: uuidv4(),
+        name: feeTypeName,
+        amount: 0,
+        concession: 0,
+        term_name: termName,
+      };
+      newValue[studyingYear].push(feeItem);
     }
+
+    feeItem[field] = parseFloat(inputValue) || 0;
+    onChange(newValue);
   };
 
   const getFeeItem = (termName: string, feeTypeName: string): FeeItem | undefined => {
     return currentYearFeeItems.find(item => item.term_name === termName && item.name === feeTypeName);
   };
 
-  if (!selectedStudyingYear || studyingYears.length === 0 || FIXED_TERMS.length === 0) {
+  if (!selectedStudyingYear || studyingYears.length === 0) {
     return <Card><CardHeader><CardTitle>Fee Structure</CardTitle></CardHeader><CardContent><p>Loading fee structure configuration...</p></CardContent></Card>;
   }
 
-  // Combine base fee types with any custom fee types already in the structure
   const uniqueFeeTypesInSelectedYear = Array.from(new Set([...BASE_FEE_TYPES, ...currentYearFeeItems.map(item => item.name)])).sort();
 
   return (
@@ -142,7 +151,7 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Fee Structure</CardTitle>
-            <CardDescription>Define the fee structure for each academic year and term.</CardDescription>
+            <CardDescription>Define the fee structure. Note: JVD Fee is only applicable to Term 3.</CardDescription>
           </div>
           <div className="flex gap-2">
             <Dialog open={feeTypeDialogOpen} onOpenChange={setFeeTypeDialogOpen}>
@@ -218,14 +227,20 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
                   <TableCell className="font-medium sticky left-0 z-10 bg-background border-r">{term.name}</TableCell>
                   {uniqueFeeTypesInSelectedYear.map(feeType => {
                     const item = getFeeItem(term.name, feeType);
+                    const isJvdRestricted = feeType === 'JVD Fee' && term.name !== 'Term 3';
+                    
                     return (
                       <TableCell key={feeType} className="border-l">
-                        <Input
-                          type="number"
-                          value={item?.amount || 0}
-                          onChange={(e) => handleInputChange(selectedStudyingYear, term.name, feeType, 'amount', e.target.value)}
-                          className="h-8"
-                        />
+                        {isJvdRestricted ? (
+                          <div className="text-center text-xs text-muted-foreground italic">N/A</div>
+                        ) : (
+                          <Input
+                            type="number"
+                            value={item?.amount || 0}
+                            onChange={(e) => handleInputChange(selectedStudyingYear, term.name, feeType, 'amount', e.target.value)}
+                            className="h-8"
+                          />
+                        )}
                       </TableCell>
                     );
                   })}

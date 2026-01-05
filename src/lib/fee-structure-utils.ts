@@ -8,43 +8,53 @@ export function generateInitialFeeDetails(
   studyingYears: StudyingYear[]
 ): FeeStructure {
   const initialStructure: FeeStructure = {};
+  const isJvd = studentTypeName?.toLowerCase().includes('jvd');
 
   studyingYears.forEach(sYear => {
     const yearName = sYear.name;
     initialStructure[yearName] = [];
 
     FIXED_TERMS.forEach(term => {
-      if (yearName === '1st Year' && studentTypeName?.toLowerCase().includes('jvd')) {
-        // Simplified JVD logic for 1st Year
+      // 1. Management Fee - always present for all terms
+      initialStructure[yearName].push({
+        id: uuidv4(),
+        name: 'Management Fee',
+        amount: 0,
+        concession: 0,
+        term_name: term.name,
+      });
+
+      // 2. Tuition Fee logic
+      let tuitionAmount = 0;
+      if (isJvd && yearName === '1st Year') {
+        // For JVD 1st Year: Tuition Fee is 15000 for Term 1 & 2, and 0 for Term 3
         if (term.name === 'Term 1' || term.name === 'Term 2') {
-          initialStructure[yearName].push({
-            id: uuidv4(),
-            name: 'Tuition Fee',
-            amount: 15000, 
-            concession: 0,
-            term_name: term.name,
-          });
-        } else if (term.name === 'Term 3') {
-          initialStructure[yearName].push({
-            id: uuidv4(),
-            name: 'JVD Fee',
-            amount: 15000,
-            concession: 0,
-            term_name: term.name,
-          });
+          tuitionAmount = 15000;
+        } else {
+          tuitionAmount = 0;
         }
-        // No other fee types for 1st Year JVD students in these terms
-      } else {
-        // Default structure for other years or non-JVD students
-        BASE_FEE_TYPES.forEach(feeType => {
-          if (feeType === 'JVD Fee') return; // JVD is specific to 1st year JVD students
-          initialStructure[yearName].push({
-            id: uuidv4(),
-            name: feeType,
-            amount: 0, // Default to 0, can be edited
-            concession: 0,
-            term_name: term.name,
-          });
+      }
+
+      initialStructure[yearName].push({
+        id: uuidv4(),
+        name: 'Tuition Fee',
+        amount: tuitionAmount,
+        concession: 0,
+        term_name: term.name,
+      });
+
+      // 3. JVD Fee logic - ONLY for Term 3
+      if (term.name === 'Term 3') {
+        let jvdAmount = 0;
+        if (isJvd && yearName === '1st Year') {
+          jvdAmount = 15000;
+        }
+        initialStructure[yearName].push({
+          id: uuidv4(),
+          name: 'JVD Fee',
+          amount: jvdAmount,
+          concession: 0,
+          term_name: term.name,
         });
       }
     });
