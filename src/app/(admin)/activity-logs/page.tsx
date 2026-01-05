@@ -64,24 +64,28 @@ export default function ActivityLogsPage() {
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   const renderDetails = (log: ActivityLog) => {
+    if (!log.details) return "N/A";
+    
     switch (log.action) {
       case 'Fee Collection':
-        return `Amount: ${log.details.amount}, Type: ${log.details.fee_type}`;
+        return `Amount: ${log.details.amount}, Type: ${log.details.fee_type || 'N/A'}`;
       case 'Concession Applied':
-        return `Amount: ${log.details.amount}, Reason: ${log.details.notes}`;
+        return `Amount: ${log.details.amount}, Reason: ${log.details.notes || 'N/A'}`;
       case 'Invoice Payment':
-        return `Amount: ${log.details.amount}, Desc: ${log.details.description}`;
+        return `Amount: ${log.details.amount}, Desc: ${log.details.description || 'N/A'}`;
+      case 'Bulk Payment Import':
+        return `Count: ${log.details.count} records imported.`;
       default:
-        return JSON.stringify(log.details);
+        return typeof log.details === 'object' ? JSON.stringify(log.details) : String(log.details);
     }
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Cashier Activity Logs</CardTitle>
+        <CardTitle>Activity Logs</CardTitle>
         <CardDescription>
-          Review the most recent actions performed by cashiers.
+          Review actions performed by Admins and Cashiers.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -89,7 +93,7 @@ export default function ActivityLogsPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Date & Time</TableHead>
-              <TableHead>Cashier</TableHead>
+              <TableHead>User</TableHead>
               <TableHead>Action</TableHead>
               <TableHead>Student</TableHead>
               <TableHead>Details</TableHead>
@@ -106,10 +110,16 @@ export default function ActivityLogsPage() {
               logs.map((log) => (
                 <TableRow key={log.id}>
                   <TableCell>{new Date(log.timestamp).toLocaleString()}</TableCell>
-                  <TableCell>{log.cashiers?.name || 'N/A'}</TableCell>
-                  <TableCell><Badge>{log.action}</Badge></TableCell>
+                  <TableCell>
+                    {log.cashiers ? (
+                      <span className="font-medium">{log.cashiers.name}</span>
+                    ) : (
+                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">Admin</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell><Badge variant="secondary">{log.action}</Badge></TableCell>
                   <TableCell>{log.students ? `${log.students.name} (${log.students.roll_number})` : 'N/A'}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
                     {renderDetails(log)}
                   </TableCell>
                 </TableRow>

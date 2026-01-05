@@ -124,6 +124,13 @@ export function BulkPaymentUpload({ cashierProfile, academicYears }: BulkPayment
           if (error) {
             toast.error(`Bulk upload failed: ${error.message}`, { id: toastId });
           } else {
+            // LOG ACTIVITY FOR BULK IMPORT
+            await supabase.from('activity_logs').insert({
+              cashier_id: cashierProfile?.id || null,
+              action: 'Bulk Payment Import',
+              details: { count: paymentsToInsert.length, file_name: file.name },
+            });
+            
             toast.success(`${paymentsToInsert.length} payments uploaded successfully!`, { id: toastId });
           }
         } else {
