@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -50,24 +50,16 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AcademicYear } from "@/types";
+import { AcademicYear, StudentDetails, StudentType, ClassGroup, StudyingYear, Term, FeeStructure } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FeeStructureEditor } from "@/components/admin/fee-structure-editor";
 import { CreatableCombobox } from "@/components/admin/creatable-combobox";
 import { BulkStudentUpload } from "@/components/admin/bulk-student-upload";
-
-// Types
-type FeeItem = { id: string; name: string; amount: number; concession: number };
-type FeeStructure = { [year: string]: FeeItem[] };
-type StudentType = { id: string; name: string };
-type ClassGroup = { id: string; name: string };
-type Section = { id: string; name: string };
-type StudyingYear = { id: string; name: string };
+import { generateInitialFeeDetails } from "@/lib/fee-structure-utils";
 
 const studentFormSchema = z.object({
   roll_number: z.string().min(1, "Roll number is required"),
@@ -80,15 +72,16 @@ const studentFormSchema = z.object({
   academic_year_id: z.string().min(1, "Academic year is required"),
   studying_year: z.string().min(1, "Studying year is required"),
   caste: z.string().optional(),
-  fee_details: z.any().optional(),
+  fee_details: z.any().optional(), // Will be FeeStructure type
 });
 
 export default function StudentsPage() {
   const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [classGroups, setClassGroups] = useState<ClassGroup[]>([]);
-  const [sections, setSections] = useState<Section[]>([]);
+  const [sections, setSections] = useState<Term[]>([]); // Renamed to Term for consistency
   const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
+  const [terms, setTerms] = useState<Term[]>([]); // New state for terms
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<z.infer<typeof studentFormSchema>>({
@@ -99,13 +92,17 @@ export default function StudentsPage() {
     },
   });
 
+  const watchedStudentTypeId = form.watch('student_type_id');
+  const watchedStudyingYear = form.watch('studying_year');
+
   const fetchData = async () => {
-    const [typesRes, yearsRes, groupsRes, sectionsRes, studyingYearsRes] = await Promise.all([
+    const [typesRes, yearsRes, groupsRes, sectionsRes, studyingYearsRes, termsRes] = await Promise.all([
       supabase.from("student_types").select("*"),
       supabase.from("academic_years").select("*").eq('is_active', true).order("year_name", { ascending: false }),
       supabase.from("class_groups").select("*"),
       supabase.from("sections").select("*"),
       supabase.from("studying_years").select("*"),
+      supabase.from("terms").select("*").order("name", { ascending: true }), // Fetch terms
     ]);
 
     if (typesRes.error) toast.error("Failed to fetch student types.");
@@ -122,11 +119,25 @@ export default function StudentsPage() {
 
     if (studyingYearsRes.error) toast.error("Failed to fetch studying years.");
     else setStudyingYears(studyingYearsRes.data || []);
+
+    if (termsRes.error) toast.error("Failed to fetch terms.");
+    else setTerms(termsRes.data || []);
   };
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Effect to generate initial fee details based on student type and studying year
+  useEffect(() => {
+    if (watchedStudentTypeId && studyingYears.length > 0 && terms.length > 0) {
+      const selectedStudentType = studentTypes.find(st => st.id === watchedStudentTypeId);
+      const studentTypeName = selectedStudentType?.name || null;
+      
+      const initialFeeDetails = generateInitialFeeDetails(studentTypeName, studyingYears, terms);
+      form.setValue('fee_details', initialFeeDetails);
+    }
+  }, [watchedStudentTypeId, studyingYears, terms, studentTypes, form]);
 
   const onStudentSubmit = async (values: z.infer<typeof studentFormSchema>) => {
     setIsSubmitting(true);
@@ -136,7 +147,7 @@ export default function StudentsPage() {
     } else {
       toast.success("Student added successfully!");
       form.reset();
-      fetchData();
+      fetchData(); // Re-fetch data to update combobox options if new items were added
     }
     setIsSubmitting(false);
   };
@@ -231,7 +242,14 @@ export default function StudentsPage() {
                 
                 <FormField control={form.control} name="fee_details" render={({ field }) => (
                   <FormItem>
-                    <FormControl><FeeStructureEditor value={field.value || {}} onChange={field.onChange} /></FormControl>
+                    <FormControl>
+                      <FeeStructureEditor 
+                        value={field.value || {}} 
+                        onChange={field.onChange} 
+                        studyingYears={studyingYears}
+                        terms={terms}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -243,7 +261,7 @@ export default function StudentsPage() {
             </Form>
           </TabsContent>
           <TabsContent value="bulk" className="pt-6">
-            <BulkStudentUpload onSuccess={fetchData} />
+            <BulkStudentUpload onSuccess={fetchData} studyingYears={studyingYears} terms={terms} studentTypes={studentTypes} academicYears={academicYears} classGroups={classGroups} sections={sections} />
           </TabsContent>
         </Tabs>
       </CardContent>

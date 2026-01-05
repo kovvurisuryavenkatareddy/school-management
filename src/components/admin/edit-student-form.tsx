@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -50,12 +50,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { AcademicYear } from "@/types";
+import { AcademicYear, StudentType, ClassGroup, StudyingYear, Term, FeeStructure } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FeeStructureEditor } from "@/components/admin/fee-structure-editor";
-
-type StudentType = { id: string; name: string };
-type ClassGroup = { id: string; name: string };
+import { CreatableStringCombobox } from "@/components/admin/creatable-combobox"; // Assuming this is for string options
 
 const studentFormSchema = z.object({
   roll_number: z.string().min(1, "Roll number is required"),
@@ -68,7 +66,7 @@ const studentFormSchema = z.object({
   academic_year_id: z.string().min(1, "Academic year is required"),
   studying_year: z.string().min(1, "Studying year is required"),
   caste: z.string().optional(),
-  fee_details: z.any().optional(),
+  fee_details: z.any().optional(), // Will be FeeStructure type
 });
 
 interface EditStudentFormProps {
@@ -79,8 +77,9 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
   const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [classGroups, setClassGroups] = useState<ClassGroup[]>([]);
-  const [sections, setSections] = useState<string[]>([]);
-  const [studyingYears, setStudyingYears] = useState<string[]>([]);
+  const [sections, setSections] = useState<Term[]>([]); // Renamed to Term for consistency
+  const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
+  const [terms, setTerms] = useState<Term[]>([]); // New state for terms
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
@@ -91,12 +90,14 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
 
   const fetchData = async () => {
     setIsLoading(true);
-    const [typesRes, yearsRes, studentRes, groupsRes, studentDataRes] = await Promise.all([
+    const [typesRes, yearsRes, studentRes, groupsRes, sectionsRes, studyingYearsRes, termsRes] = await Promise.all([
       supabase.from("student_types").select("*"),
       supabase.from("academic_years").select("*").eq('is_active', true).order("year_name", { ascending: false }),
-      supabase.from("students").select("*").eq("id", studentId).single(),
+      supabase.from("students").select("*, student_types(name)").eq("id", studentId).single(), // Fetch student_types name for initial fee details
       supabase.from("class_groups").select("*"),
-      supabase.from("students").select("section, studying_year"),
+      supabase.from("sections").select("*"),
+      supabase.from("studying_years").select("*"),
+      supabase.from("terms").select("*").order("name", { ascending: true }), // Fetch terms
     ]);
 
     if (typesRes.error) toast.error("Failed to fetch student types.");
@@ -115,10 +116,14 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
     if (groupsRes.error) toast.error("Failed to fetch class groups.");
     else setClassGroups(groupsRes.data || []);
 
-    if (studentDataRes.data) {
-      setSections([...new Set(studentDataRes.data.map(s => s.section).filter(Boolean))]);
-      setStudyingYears([...new Set(studentDataRes.data.map(s => s.studying_year).filter(Boolean))]);
-    }
+    if (sectionsRes.error) toast.error("Failed to fetch sections.");
+    else setSections(sectionsRes.data || []);
+
+    if (studyingYearsRes.error) toast.error("Failed to fetch studying years.");
+    else setStudyingYears(studyingYearsRes.data || []);
+
+    if (termsRes.error) toast.error("Failed to fetch terms.");
+    else setTerms(termsRes.data || []);
     
     setIsLoading(false);
   };
@@ -187,12 +192,12 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
               )} />
               <FormField control={form.control} name="section" render={({ field }) => (
                 <FormItem className="flex flex-col"><FormLabel>Section</FormLabel>
-                  <CreatableStringCombobox options={sections} value={field.value} onChange={field.onChange} placeholder="Select or type section..." />
+                  <CreatableStringCombobox options={sections.map(s => s.name)} value={field.value} onChange={field.onChange} placeholder="Select or type section..." />
                 <FormMessage /></FormItem>
               )} />
               <FormField control={form.control} name="studying_year" render={({ field }) => (
                 <FormItem className="flex flex-col"><FormLabel>Studying Year</FormLabel>
-                  <CreatableStringCombobox options={studyingYears} value={field.value} onChange={field.onChange} placeholder="Select or type year..." />
+                  <CreatableStringCombobox options={studyingYears.map(s => s.name)} value={field.value} onChange={field.onChange} placeholder="Select or type year..." />
                 <FormMessage /></FormItem>
               )} />
               <FormField control={form.control} name="academic_year_id" render={({ field }) => (
@@ -222,7 +227,12 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormControl>
-                    <FeeStructureEditor value={field.value || {}} onChange={field.onChange} />
+                    <FeeStructureEditor 
+                      value={field.value || {}} 
+                      onChange={field.onChange} 
+                      studyingYears={studyingYears}
+                      terms={terms}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
