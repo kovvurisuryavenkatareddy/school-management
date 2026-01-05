@@ -39,14 +39,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FeeStructure, FeeItem, StudyingYear, Term } from "@/types";
 import { getFeeTypesFromStructure } from "@/lib/fee-structure-utils";
 
+// Hardcoded terms and base fee types
+const FIXED_TERMS: Term[] = [
+  { id: 'term-1', name: 'Term 1', created_at: new Date().toISOString() },
+  { id: 'term-2', name: 'Term 2', created_at: new Date().toISOString() },
+  { id: 'term-3', name: 'Term 3', created_at: new Date().toISOString() },
+];
+const BASE_FEE_TYPES = ['Tuition Fee', 'Management Fee', 'JVD Fee'];
+
 interface FeeStructureEditorProps {
   value: FeeStructure;
   onChange: (value: FeeStructure) => void;
   studyingYears: StudyingYear[];
-  terms: Term[];
 }
 
-export function FeeStructureEditor({ value, onChange, studyingYears, terms }: FeeStructureEditorProps) {
+export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStructureEditorProps) {
   const [selectedStudyingYear, setSelectedStudyingYear] = useState<string>(studyingYears[0]?.name || '');
   const [feeTypeDialogOpen, setFeeTypeDialogOpen] = useState(false);
   const [newFeeTypeName, setNewFeeTypeName] = useState("");
@@ -58,8 +65,8 @@ export function FeeStructureEditor({ value, onChange, studyingYears, terms }: Fe
   }, [studyingYears, selectedStudyingYear]);
 
   const currentYearFeeItems = value[selectedStudyingYear] || [];
-  const allFeeTypes = getFeeTypesFromStructure(value);
-  const sortedTerms = terms.sort((a, b) => a.name.localeCompare(b.name));
+  const allFeeTypes = getFeeTypesFromStructure(value); // This will include BASE_FEE_TYPES and any custom ones
+  const sortedTerms = FIXED_TERMS.sort((a, b) => a.name.localeCompare(b.name));
 
   const handleAddFeeType = () => {
     const trimmedFeeType = newFeeTypeName.trim();
@@ -67,8 +74,8 @@ export function FeeStructureEditor({ value, onChange, studyingYears, terms }: Fe
       toast.error("Fee type name cannot be empty.");
       return;
     }
-    if (allFeeTypes.includes(trimmedFeeType)) {
-      toast.error(`Fee type "${trimmedFeeType}" already exists.`);
+    if (BASE_FEE_TYPES.includes(trimmedFeeType) || allFeeTypes.includes(trimmedFeeType)) {
+      toast.error(`Fee type "${trimmedFeeType}" already exists or is a base type.`);
       return;
     }
 
@@ -76,7 +83,7 @@ export function FeeStructureEditor({ value, onChange, studyingYears, terms }: Fe
     studyingYears.forEach(sYear => {
       const yearName = sYear.name;
       if (!newValue[yearName]) newValue[yearName] = [];
-      terms.forEach(term => {
+      FIXED_TERMS.forEach(term => {
         newValue[yearName].push({
           id: uuidv4(),
           name: trimmedFeeType,
@@ -92,6 +99,10 @@ export function FeeStructureEditor({ value, onChange, studyingYears, terms }: Fe
   };
 
   const handleDeleteFeeType = (feeTypeToDelete: string) => {
+    if (BASE_FEE_TYPES.includes(feeTypeToDelete)) {
+      toast.error(`Cannot delete base fee type "${feeTypeToDelete}".`);
+      return;
+    }
     const newValue = JSON.parse(JSON.stringify(value));
     studyingYears.forEach(sYear => {
       const yearName = sYear.name;
@@ -124,11 +135,12 @@ export function FeeStructureEditor({ value, onChange, studyingYears, terms }: Fe
     return currentYearFeeItems.find(item => item.term_name === termName && item.name === feeTypeName);
   };
 
-  if (!selectedStudyingYear || studyingYears.length === 0 || terms.length === 0) {
+  if (!selectedStudyingYear || studyingYears.length === 0 || FIXED_TERMS.length === 0) {
     return <Card><CardHeader><CardTitle>Fee Structure</CardTitle></CardHeader><CardContent><p>Loading fee structure configuration...</p></CardContent></Card>;
   }
 
-  const uniqueFeeTypesInSelectedYear = Array.from(new Set(currentYearFeeItems.map(item => item.name))).sort();
+  // Combine base fee types with any custom fee types already in the structure
+  const uniqueFeeTypesInSelectedYear = Array.from(new Set([...BASE_FEE_TYPES, ...currentYearFeeItems.map(item => item.name)])).sort();
 
   return (
     <Card>
@@ -142,11 +154,11 @@ export function FeeStructureEditor({ value, onChange, studyingYears, terms }: Fe
             <Dialog open={feeTypeDialogOpen} onOpenChange={setFeeTypeDialogOpen}>
               <DialogTrigger asChild>
                 <Button type="button" size="sm" variant="outline" className="gap-1">
-                  <PlusCircle className="h-4 w-4" /> Add Fee Type
+                  <PlusCircle className="h-4 w-4" /> Add Custom Fee Type
                 </Button>
               </DialogTrigger>
               <DialogContent>
-                <DialogHeader><DialogTitle>Add New Fee Type</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>Add New Custom Fee Type</DialogTitle></DialogHeader>
                 <div className="space-y-2">
                   <Label htmlFor="fee-type-name">Fee Type Name</Label>
                   <Input id="fee-type-name" value={newFeeTypeName} onChange={(e) => setNewFeeTypeName(e.target.value)} placeholder="e.g., Exam Fee" />
@@ -184,20 +196,22 @@ export function FeeStructureEditor({ value, onChange, studyingYears, terms }: Fe
                   <TableHead key={feeType} className="text-center border-l min-w-[120px]">
                     <div className="flex items-center justify-between">
                       {feeType}
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader><AlertDialogTitle>Delete "{feeType}"?</AlertDialogTitle><AlertDialogDescription>This will remove this fee type from all terms and years. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDeleteFeeType(feeType)}>Delete</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      {!BASE_FEE_TYPES.includes(feeType) && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader><AlertDialogTitle>Delete "{feeType}"?</AlertDialogTitle><AlertDialogDescription>This will remove this fee type from all terms and years. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteFeeType(feeType)}>Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
                     </div>
                   </TableHead>
                 ))}

@@ -62,6 +62,13 @@ import { CreatableCombobox } from "@/components/admin/creatable-combobox";
 import { BulkStudentUpload } from "@/components/admin/bulk-student-upload";
 import { generateInitialFeeDetails } from "@/lib/fee-structure-utils";
 
+// Hardcoded terms
+const FIXED_TERMS: Term[] = [
+  { id: 'term-1', name: 'Term 1', created_at: new Date().toISOString() },
+  { id: 'term-2', name: 'Term 2', created_at: new Date().toISOString() },
+  { id: 'term-3', name: 'Term 3', created_at: new Date().toISOString() },
+];
+
 const studentFormSchema = z.object({
   roll_number: z.string().min(1, "Roll number is required"),
   name: z.string().min(1, "Name is required"),
@@ -82,7 +89,6 @@ export default function StudentsPage() {
   const [classGroups, setClassGroups] = useState<ClassGroup[]>([]);
   const [sections, setSections] = useState<Term[]>([]); // Renamed to Term for consistency
   const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
-  const [terms, setTerms] = useState<Term[]>([]); // New state for terms
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<z.infer<typeof studentFormSchema>>({
@@ -97,13 +103,12 @@ export default function StudentsPage() {
   const watchedStudyingYear = form.watch('studying_year');
 
   const fetchData = async () => {
-    const [typesRes, yearsRes, groupsRes, sectionsRes, studyingYearsRes, termsRes] = await Promise.all([
+    const [typesRes, yearsRes, groupsRes, sectionsRes, studyingYearsRes] = await Promise.all([
       supabase.from("student_types").select("*"),
       supabase.from("academic_years").select("*").eq('is_active', true).order("year_name", { ascending: false }),
       supabase.from("class_groups").select("*"),
       supabase.from("sections").select("*"),
       supabase.from("studying_years").select("*"),
-      supabase.from("terms").select("*").order("name", { ascending: true }), // Fetch terms
     ]);
 
     if (typesRes.error) toast.error("Failed to fetch student types.");
@@ -120,9 +125,6 @@ export default function StudentsPage() {
 
     if (studyingYearsRes.error) toast.error("Failed to fetch studying years.");
     else setStudyingYears(studyingYearsRes.data || []);
-
-    if (termsRes.error) toast.error("Failed to fetch terms.");
-    else setTerms(termsRes.data || []);
   };
 
   useEffect(() => {
@@ -131,14 +133,14 @@ export default function StudentsPage() {
 
   // Effect to generate initial fee details based on student type and studying year
   useEffect(() => {
-    if (watchedStudentTypeId && studyingYears.length > 0 && terms.length > 0) {
+    if (watchedStudentTypeId && studyingYears.length > 0) {
       const selectedStudentType = studentTypes.find(st => st.id === watchedStudentTypeId);
       const studentTypeName = selectedStudentType?.name || null;
       
-      const initialFeeDetails = generateInitialFeeDetails(studentTypeName, studyingYears, terms);
+      const initialFeeDetails = generateInitialFeeDetails(studentTypeName, studyingYears);
       form.setValue('fee_details', initialFeeDetails);
     }
-  }, [watchedStudentTypeId, studyingYears, terms, studentTypes, form]);
+  }, [watchedStudentTypeId, studyingYears, studentTypes, form]);
 
   const onStudentSubmit = async (values: z.infer<typeof studentFormSchema>) => {
     setIsSubmitting(true);
@@ -248,7 +250,6 @@ export default function StudentsPage() {
                         value={field.value || {}} 
                         onChange={field.onChange} 
                         studyingYears={studyingYears}
-                        terms={terms}
                       />
                     </FormControl>
                     <FormMessage />
@@ -262,7 +263,7 @@ export default function StudentsPage() {
             </Form>
           </TabsContent>
           <TabsContent value="bulk" className="pt-6">
-            <BulkStudentUpload onSuccess={fetchData} studyingYears={studyingYears} terms={terms} studentTypes={studentTypes} academicYears={academicYears} classGroups={classGroups} sections={sections} />
+            <BulkStudentUpload onSuccess={fetchData} studyingYears={studyingYears} studentTypes={studentTypes} academicYears={academicYears} classGroups={classGroups} sections={sections} />
           </TabsContent>
         </Tabs>
       </CardContent>

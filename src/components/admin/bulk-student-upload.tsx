@@ -13,17 +13,24 @@ import { AcademicYear, StudentType, ClassGroup, StudyingYear, Term, FeeItem, Fee
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { generateInitialFeeDetails, getFeeTypesFromStructure } from "@/lib/fee-structure-utils";
 
+// Hardcoded terms and base fee types
+const FIXED_TERMS: Term[] = [
+  { id: 'term-1', name: 'Term 1', created_at: new Date().toISOString() },
+  { id: 'term-2', name: 'Term 2', created_at: new Date().toISOString() },
+  { id: 'term-3', name: 'Term 3', created_at: new Date().toISOString() },
+];
+const BASE_FEE_TYPES = ['Tuition Fee', 'Management Fee', 'JVD Fee'];
+
 interface BulkStudentUploadProps {
   onSuccess: () => void;
   studyingYears: StudyingYear[];
-  terms: Term[];
   studentTypes: StudentType[];
   academicYears: AcademicYear[];
   classGroups: ClassGroup[];
   sections: Term[]; // Assuming sections are also managed as terms
 }
 
-export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentTypes, academicYears, classGroups, sections }: BulkStudentUploadProps) {
+export function BulkStudentUpload({ onSuccess, studyingYears, studentTypes, academicYears, classGroups, sections }: BulkStudentUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
 
   const handleDownloadSample = () => {
@@ -34,11 +41,10 @@ export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentType
 
     const feeHeaders: string[] = [];
     studyingYears.forEach(sYear => {
-      terms.forEach(term => {
-        feeHeaders.push(`${sYear.name.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_management_fee`);
-        feeHeaders.push(`${sYear.name.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_jvd_fee`);
-        feeHeaders.push(`${sYear.name.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_tuition_fee`);
-        // Add other custom fee types if needed, for now, stick to base
+      FIXED_TERMS.forEach(term => {
+        BASE_FEE_TYPES.forEach(feeType => {
+          feeHeaders.push(`${sYear.name.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_${feeType.toLowerCase().replace(' ', '_')}`);
+        });
       });
     });
 
@@ -50,10 +56,11 @@ export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentType
     ];
     const sampleFeeData1: string[] = [];
     studyingYears.forEach(sYear => {
-      terms.forEach(term => {
-        sampleFeeData1.push("15000"); // Management Fee
-        sampleFeeData1.push("0"); // JVD Fee
-        sampleFeeData1.push("0"); // Tuition Fee
+      FIXED_TERMS.forEach(term => {
+        BASE_FEE_TYPES.forEach(feeType => {
+          if (feeType === 'Tuition Fee') sampleFeeData1.push("15000");
+          else sampleFeeData1.push("0");
+        });
       });
     });
     const sampleRow1 = [...sampleDataRow1, ...sampleFeeData1];
@@ -64,25 +71,23 @@ export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentType
     ];
     const sampleFeeData2: string[] = [];
     studyingYears.forEach(sYear => {
-      terms.forEach(term => {
-        if (sYear.name === '1st Year') {
+      FIXED_TERMS.forEach(term => {
+        if (sYear.name === '1st Year' && studentTypes.find(st => st.name === 'JVD Scholar')?.name.toLowerCase().includes('jvd')) {
           if (term.name === 'Term 1' || term.name === 'Term 2') {
-            sampleFeeData2.push("0"); // Management Fee (now Tuition Fee)
-            sampleFeeData2.push("0"); // JVD Fee
-            sampleFeeData2.push("15000"); // Tuition Fee
+            BASE_FEE_TYPES.forEach(feeType => {
+              if (feeType === 'Tuition Fee') sampleFeeData2.push("15000");
+              else sampleFeeData2.push("0");
+            });
           } else if (term.name === 'Term 3') {
-            sampleFeeData2.push("0"); // Management Fee
-            sampleFeeData2.push("15000"); // JVD Fee
-            sampleFeeData2.push("0"); // Tuition Fee
+            BASE_FEE_TYPES.forEach(feeType => {
+              if (feeType === 'JVD Fee') sampleFeeData2.push("15000");
+              else sampleFeeData2.push("0");
+            });
           } else {
-            sampleFeeData2.push("0"); // Management Fee
-            sampleFeeData2.push("0"); // JVD Fee
-            sampleFeeData2.push("0"); // Tuition Fee
+            BASE_FEE_TYPES.forEach(() => sampleFeeData2.push("0"));
           }
         } else {
-          sampleFeeData2.push("0"); // Management Fee
-          sampleFeeData2.push("0"); // JVD Fee
-          sampleFeeData2.push("0"); // Tuition Fee
+          BASE_FEE_TYPES.forEach(() => sampleFeeData2.push("0"));
         }
       });
     });
@@ -124,10 +129,6 @@ export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentType
           const studentTypeMap = new Map(studentTypes?.map(i => [i.name.toLowerCase(), i.id]));
           const academicYearMap = new Map(academicYears?.map(i => [i.year_name, i.id]));
 
-          // Identify and create new items if any (simplified for brevity, assuming they exist or are handled by CreatableCombobox)
-          // For a robust solution, this part would need to create missing class_groups, sections, etc.
-          // For now, we'll assume they exist or the user will add them manually.
-
           const studentsToInsert: any[] = [];
           const skippedRows: { row: number; reason: string }[] = [];
 
@@ -158,7 +159,7 @@ export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentType
               const yearName = sYear.name;
               fee_details[yearName] = [];
 
-              terms.forEach(term => {
+              FIXED_TERMS.forEach(term => {
                 const managementFeeKey = `${yearName.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_management_fee`;
                 const jvdFeeKey = `${yearName.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_jvd_fee`;
                 const tuitionFeeKey = `${yearName.toLowerCase().replace(' ', '_')}_${term.name.toLowerCase().replace(' ', '_')}_tuition_fee`;
@@ -170,7 +171,7 @@ export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentType
                 if (yearName === '1st Year' && student_type_name?.toLowerCase().includes('jvd')) {
                   // Apply fixed JVD logic for 1st Year JVD students
                   if (term.name === 'Term 1' || term.name === 'Term 2') {
-                    fee_details[yearName].push({ id: uuidv4(), name: 'Tuition Fee', amount: 15000, concession: 0, term_name: term.name }); // Changed from Management Fee
+                    fee_details[yearName].push({ id: uuidv4(), name: 'Tuition Fee', amount: 15000, concession: 0, term_name: term.name });
                   } else if (term.name === 'Term 3') {
                     fee_details[yearName].push({ id: uuidv4(), name: 'JVD Fee', amount: 15000, concession: 0, term_name: term.name });
                   }

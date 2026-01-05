@@ -1,12 +1,16 @@
 import { v4 as uuidv4 } from "uuid";
 import { FeeStructure, FeeItem, StudyingYear, Term } from "@/types";
 
+const FIXED_TERMS: Term[] = [
+  { id: 'term-1', name: 'Term 1', created_at: new Date().toISOString() },
+  { id: 'term-2', name: 'Term 2', created_at: new Date().toISOString() },
+  { id: 'term-3', name: 'Term 3', created_at: new Date().toISOString() },
+];
 const BASE_FEE_TYPES = ['Tuition Fee', 'Management Fee', 'JVD Fee'];
 
 export function generateInitialFeeDetails(
   studentTypeName: string | null,
-  studyingYears: StudyingYear[],
-  terms: Term[]
+  studyingYears: StudyingYear[]
 ): FeeStructure {
   const initialStructure: FeeStructure = {};
 
@@ -14,13 +18,13 @@ export function generateInitialFeeDetails(
     const yearName = sYear.name;
     initialStructure[yearName] = [];
 
-    terms.forEach(term => {
+    FIXED_TERMS.forEach(term => {
       if (yearName === '1st Year' && studentTypeName?.toLowerCase().includes('jvd')) {
         // Simplified JVD logic for 1st Year
         if (term.name === 'Term 1' || term.name === 'Term 2') {
           initialStructure[yearName].push({
             id: uuidv4(),
-            name: 'Tuition Fee', // Changed to Tuition Fee
+            name: 'Tuition Fee',
             amount: 15000, 
             concession: 0,
             term_name: term.name,

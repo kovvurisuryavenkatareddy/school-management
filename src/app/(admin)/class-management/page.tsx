@@ -33,7 +33,6 @@ export default function ClassManagementPage() {
             <TabsTrigger value="studying_years">Studying Years</TabsTrigger>
             <TabsTrigger value="student_types">Student Types</TabsTrigger>
             <TabsTrigger value="academic_years">Academic Years</TabsTrigger>
-            <TabsTrigger value="terms">Terms</TabsTrigger> {/* New Tab */}
           </TabsList>
           <TabsContent value="classes" className="pt-6">
             <ManagementTable tableName="class_groups" columnName="name" title="Class" />
@@ -49,9 +48,6 @@ export default function ClassManagementPage() {
           </TabsContent>
           <TabsContent value="academic_years" className="pt-6">
             <AcademicYearManagement />
-          </TabsContent>
-          <TabsContent value="terms" className="pt-6"> {/* New Tab Content */}
-            <ManagementTable tableName="terms" columnName="name" title="Term" />
           </TabsContent>
         </Tabs>
       </CardContent>
