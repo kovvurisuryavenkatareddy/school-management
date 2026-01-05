@@ -52,7 +52,6 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
   const [feeTypeDialogOpen, setFeeTypeDialogOpen] = useState(false);
   const [newFeeTypeName, setNewFeeTypeName] = useState("");
 
-  // Normalize incoming legacy data immediately
   const normalizedValue = useMemo(() => normalizeFeeStructure(value), [value]);
 
   useEffect(() => {
@@ -72,7 +71,7 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
       return;
     }
     if (BASE_FEE_TYPES.includes(trimmedFeeType) || allFeeTypes.includes(trimmedFeeType)) {
-      toast.error(`Fee type "${trimmedFeeType}" already exists or is a base type.`);
+      toast.error(`Fee type "${trimmedFeeType}" already exists.`);
       return;
     }
 
@@ -147,7 +146,6 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
     return <Card><CardHeader><CardTitle>Fee Structure</CardTitle></CardHeader><CardContent><p>Loading configuration...</p></CardContent></Card>;
   }
 
-  // Get unique fee types present in THIS year
   const uniqueFeeTypesInYear = Array.from(new Set([...BASE_FEE_TYPES, ...currentYearFeeItems.map(item => item.name)])).sort();
 
   return (
@@ -156,12 +154,12 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Fee Structure</CardTitle>
-            <CardDescription>Enter amounts for each term. Tuition Fee should be split into Terms 1 & 2.</CardDescription>
+            <CardDescription>Amounts per term. Tuition: Terms 1&2 | JVD: Term 3 only.</CardDescription>
           </div>
           <Dialog open={feeTypeDialogOpen} onOpenChange={setFeeTypeDialogOpen}>
             <DialogTrigger asChild>
               <Button type="button" size="sm" variant="outline" className="gap-1">
-                <PlusCircle className="h-4 w-4" /> Add Custom Fee Type
+                <PlusCircle className="h-4 w-4" /> Add Custom
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -179,84 +177,74 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-6 flex items-center gap-4">
-          <div className="space-y-1.5 flex-1">
-            <Label>Select Studying Year to Edit</Label>
-            <Select value={selectedStudyingYear} onValueChange={setSelectedStudyingYear}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select a year" />
-              </SelectTrigger>
-              <SelectContent>
-                {studyingYears.map(sYear => (
-                  <SelectItem key={sYear.id} value={sYear.name}>{sYear.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="mb-6">
+          <Label>Select Year</Label>
+          <Select value={selectedStudyingYear} onValueChange={setSelectedStudyingYear}>
+            <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {studyingYears.map(sYear => <SelectItem key={sYear.id} value={sYear.name}>{sYear.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
 
-        <div className="overflow-x-auto rounded-md border">
+        <div className="overflow-x-auto border rounded-md">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
-                <TableHead className="w-[120px] font-bold">Term</TableHead>
+                <TableHead className="w-[100px]">Term</TableHead>
                 {uniqueFeeTypesInYear.map(feeType => (
-                  <TableHead key={feeType} className="text-center font-bold min-w-[120px]">
-                    <div className="flex items-center justify-center gap-2">
+                  <TableHead key={feeType} className="text-center min-w-[110px]">
+                    <div className="flex items-center justify-center gap-1">
                       {feeType}
                       {!BASE_FEE_TYPES.includes(feeType) && (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground"><Trash2 className="h-3 w-3" /></Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
-                            <AlertDialogHeader><AlertDialogTitle>Delete Fee Type?</AlertDialogTitle><AlertDialogDescription>This will remove "{feeType}" from all terms. This cannot be undone.</AlertDialogDescription></AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeleteFeeType(feeType)}>Delete</AlertDialogAction>
-                            </AlertDialogFooter>
+                            <AlertDialogHeader><AlertDialogTitle>Delete {feeType}?</AlertDialogTitle><AlertDialogDescription>This removes it from all years/terms.</AlertDialogDescription></AlertDialogHeader>
+                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFeeType(feeType)}>Delete</AlertDialogAction></AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
                       )}
                     </div>
                   </TableHead>
                 ))}
-                <TableHead className="text-center font-bold w-[120px]">Concession</TableHead>
+                <TableHead className="text-center w-[110px]">Concession</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedTerms.map(term => (
                 <TableRow key={term.id}>
-                  <TableCell className="font-semibold bg-muted/20">{term.name}</TableCell>
+                  <TableCell className="font-medium">{term.name}</TableCell>
                   {uniqueFeeTypesInYear.map(feeType => {
                     const item = getFeeItem(term.name, feeType);
-                    const isJvdRestricted = feeType === 'JVD Fee' && term.name !== 'Term 3';
                     
+                    // Logic: Hide Tuition in Term 3, Hide JVD in Term 1 & 2
+                    const isDisabled = (feeType === 'Tuition Fee' && term.name === 'Term 3') || 
+                                     (feeType === 'JVD Fee' && (term.name === 'Term 1' || term.name === 'Term 2'));
+                    
+                    if (isDisabled) return <TableCell key={feeType} className="bg-muted/10 text-center text-xs text-muted-foreground italic">N/A</TableCell>;
+
                     return (
-                      <TableCell key={feeType} className="p-2">
-                        {isJvdRestricted ? (
-                          <div className="text-center text-xs text-muted-foreground italic">N/A</div>
-                        ) : (
-                          <Input
-                            type="number"
-                            value={item?.amount || 0}
-                            onChange={(e) => handleInputChange(selectedStudyingYear, term.name, feeType, 'amount', e.target.value)}
-                            className="h-9 text-center"
-                          />
-                        )}
+                      <TableCell key={feeType} className="p-1">
+                        <Input
+                          type="number"
+                          value={item?.amount || 0}
+                          onChange={(e) => handleInputChange(selectedStudyingYear, term.name, feeType, 'amount', e.target.value)}
+                          className="h-8 text-center"
+                        />
                       </TableCell>
                     );
                   })}
-                  <TableCell className="p-2">
-                    {/* Simplified concession: tied to Tuition Fee for Term 1 & 2 */}
+                  <TableCell className="p-1">
+                    {/* Concession only for Tuition Fee rows (Term 1 & 2) */}
                     {(term.name === 'Term 1' || term.name === 'Term 2') ? (
                       <Input
                         type="number"
                         value={getFeeItem(term.name, 'Tuition Fee')?.concession || 0}
                         onChange={(e) => handleInputChange(selectedStudyingYear, term.name, 'Tuition Fee', 'concession', e.target.value)}
-                        className="h-9 text-center border-blue-200 focus:border-blue-400"
+                        className="h-8 text-center border-blue-200"
                       />
                     ) : (
                       <div className="text-center text-xs text-muted-foreground">N/A</div>
