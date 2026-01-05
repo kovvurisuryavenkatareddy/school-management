@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { StudentDetails } from '@/types';
+import { StudentDetails, FIXED_TERMS } from '@/types';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -49,6 +49,8 @@ export function StudentViewDialog({ studentId, open, onOpenChange }: StudentView
     fetchStudent();
   }, [open, studentId, onOpenChange]);
 
+  const sortedTerms = FIXED_TERMS.sort((a, b) => a.name.localeCompare(b.name));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
@@ -91,19 +93,31 @@ export function StudentViewDialog({ studentId, open, onOpenChange }: StudentView
                           <Table>
                             <TableHeader>
                               <TableRow>
+                                <TableHead>Term</TableHead>
                                 <TableHead>Fee Type</TableHead>
                                 <TableHead className="text-right">Amount</TableHead>
                                 <TableHead className="text-right">Concession</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {feeItems.map((item) => (
-                                <TableRow key={item.id}>
-                                  <TableCell>{item.name}</TableCell>
-                                  <TableCell className="text-right">{item.amount.toFixed(2)}</TableCell>
-                                  <TableCell className="text-right text-orange-600">{item.concession > 0 ? `-${item.concession.toFixed(2)}` : '0.00'}</TableCell>
-                                </TableRow>
-                              ))}
+                              {sortedTerms.map(term => {
+                                const termFeeItems = feeItems.filter(item => item.term_name === term.name);
+                                return termFeeItems.length > 0 ? (
+                                  termFeeItems.map((item, index) => (
+                                    <TableRow key={item.id}>
+                                      {index === 0 && <TableCell rowSpan={termFeeItems.length}>{term.name}</TableCell>}
+                                      <TableCell>{item.name}</TableCell>
+                                      <TableCell className="text-right">{item.amount.toFixed(2)}</TableCell>
+                                      <TableCell className="text-right text-orange-600">{item.concession > 0 ? `-${item.concession.toFixed(2)}` : '0.00'}</TableCell>
+                                    </TableRow>
+                                  ))
+                                ) : (
+                                  <TableRow key={`${term.id}-empty`}>
+                                    <TableCell>{term.name}</TableCell>
+                                    <TableCell colSpan={3} className="text-muted-foreground">No fees for this term</TableCell>
+                                  </TableRow>
+                                );
+                              })}
                             </TableBody>
                           </Table>
                         </div>

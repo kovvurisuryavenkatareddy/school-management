@@ -11,6 +11,13 @@ export type Term = {
   created_at: string;
 };
 
+// Hardcoded terms for consistency across the application
+export const FIXED_TERMS: Term[] = [
+  { id: 'term-1', name: 'Term 1', created_at: new Date().toISOString() },
+  { id: 'term-2', name: 'Term 2', created_at: new Date().toISOString() },
+  { id: 'term-3', name: 'Term 3', created_at: new Date().toISOString() },
+];
+
 export type StudyingYear = {
   id: string;
   name: string; // e.g., "1st Year", "2nd Year", "3rd Year"
@@ -58,4 +65,18 @@ export type CashierProfile = {
   name: string;
   has_discount_permission: boolean;
   has_expenses_permission: boolean;
+};
+
+// New type for Fee Summary Table data structure
+export type FeeSummaryData = {
+  [year: string]: {
+    [feeType: string]: {
+      [term: string]: {
+        total: number;
+        paid: number;
+        concession: number;
+        balance: number;
+      };
+    };
+  };
 };

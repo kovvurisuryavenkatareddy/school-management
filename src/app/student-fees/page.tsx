@@ -1,131 +1,209 @@
 "use client";
 
-import { useState, useMemo } from 'react';
-import { toast } from 'sonner';
-import { StudentDetails, Payment, Invoice } from '@/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
+
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import {
+  StudentDetails,
+  StudyingYear,
+  FeeSummaryData,
+  Payment,
+  FIXED_TERMS,
+} from "@/types";
+import { FeeSummaryTable } from "@/components/fee-collection/FeeSummaryTable";
 import { StudentDetailsCard } from "@/components/fee-collection/StudentDetailsCard";
-import { FeeSummaryTable, FeeSummaryTableData } from "@/components/fee-collection/FeeSummaryTable";
 import { OutstandingInvoices } from "@/components/fee-collection/OutstandingInvoices";
 import { PaymentHistory } from "@/components/fee-collection/PaymentHistory";
+import { PaymentDialog } from "@/components/fee-collection/PaymentDialog"; // Import PaymentDialog
+
+const BASE_FEE_TYPES = ['Tuition Fee', 'Management Fee', 'JVD Fee'];
 
 export default function StudentFeesPage() {
-  const [rollNumber, setRollNumber] = useState('');
-  const [academicYear, setAcademicYear] = useState('');
-  const [studentRecords, setStudentRecords] = useState<StudentDetails[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [students, setStudents] = useState<StudentDetails[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<StudentDetails | null>(null);
+  const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
+  const [searchText, setSearchText] = useState("");
+  const [isPayDialogOpen, setIsPayDialogOpen] = useState(false);
+  const [paymentDialogInitialState, setPaymentDialogInitialState] = useState<{ fee_item_name: string, payment_year: string, term_name: string } | null>(null);
+  const [studentPayments, setStudentPayments] = useState<Payment[]>([]);
+  const [studentInvoices, setStudentInvoices] = useState<any[]>([]); // Using any for now, will refine with Invoice type
+
+  const searchParams = useSearchParams();
+  const studentId = searchParams.get("studentId");
+
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!rollNumber) {
-      toast.error("Please enter a Roll Number.");
-      return;
-    }
-    setIsLoading(true);
-    setStudentRecords([]);
-    setPayments([]);
-    setInvoices([]);
+  const fetchStudentFinancials = async (studentId: string) => {
+    const [paymentsRes, invoicesRes] = await Promise.all([
+      supabase.from('payments').select('*').eq('student_id', studentId).order('created_at', { ascending: false }),
+      supabase.from('invoices').select('*').eq('student_id', studentId).eq('status', 'unpaid').order('due_date', { ascending: true })
+    ]);
 
-    try {
-      const response = await fetch('/api/student-fees', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rollNumber, academicYear }),
-      });
+    if (paymentsRes.error) toast.error("Failed to fetch payments.");
+    else setStudentPayments(paymentsRes.data as Payment[] || []);
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'An unknown error occurred.');
-      }
-
-      setStudentRecords(data.studentRecords || []);
-      setPayments(data.payments || []);
-      setInvoices(data.invoices || []);
-
-    } catch (error: any) {
-      toast.error(error.message);
-    } finally {
-      setIsLoading(false);
-    }
+    if (invoicesRes.error) toast.error("Failed to fetch outstanding invoices.");
+    else setStudentInvoices(invoicesRes.data || []);
   };
 
-  const feeSummaryData: FeeSummaryTableData | null = useMemo(() => {
-    if (studentRecords.length === 0) return null;
+  useEffect(() => {
+    if (studentId) {
+      const fetchStudentDetails = async () => {
+        setIsLoading(true);
+        const { data: studentData, error: studentError } = await supabase
+          .from("students")
+          .select("*, student_types(name), academic_years(*)")
+          .eq("id", studentId)
+          .single();
 
-    const mergedFeeDetails = studentRecords.reduce<{[year: string]: any[]}>((acc, record) => {
-        if (record.fee_details) {
-            Object.assign(acc, record.fee_details);
+        if (studentError) {
+          toast.error("Failed to fetch student details.");
+          setIsLoading(false);
+          return;
         }
-        return acc;
-    }, {});
 
-    const years = Object.keys(mergedFeeDetails).sort();
-    const allFeeTypeNames = new Set<string>();
-    Object.values(mergedFeeDetails).forEach(items => {
-        (items || []).forEach(item => allFeeTypeNames.add(item.name));
-    });
-    const feeTypes = Array.from(allFeeTypeNames).sort();
+        const { data: studyingYearData, error: studyingYearError } = await supabase
+          .from("studying_years")
+          .select("*")
+          .order("name", { ascending: false });
 
-    const paymentsByYearAndType: { [year: string]: { [feeType: string]: number } } = {};
-    payments.forEach(p => {
-        const parts = p.fee_type.split(' - ');
-        if (parts.length >= 2) {
-            const year = parts[0].trim();
-            const feeType = parts.slice(1).join(' - ').trim();
-            
-            if (!paymentsByYearAndType[year]) {
-                paymentsByYearAndType[year] = {};
-            }
-            
-            paymentsByYearAndType[year][feeType] = (paymentsByYearAndType[year][feeType] || 0) + p.amount;
+        if (studyingYearError) {
+          toast.error("Failed to fetch studying years.");
+          setIsLoading(false);
+          return;
         }
-    });
 
-    const cellData: FeeSummaryTableData['cellData'] = {};
-    const yearlyTotals: FeeSummaryTableData['yearlyTotals'] = {};
+        setStudyingYears(studyingYearData || []);
+        setSelectedStudent(studentData);
+        await fetchStudentFinancials(studentData.id);
+        setIsLoading(false);
+      };
 
-    years.forEach(year => {
-        cellData[year] = {};
-        yearlyTotals[year] = { total: 0, paid: 0, pending: 0, concession: 0 };
-        const feeItemsForYear = mergedFeeDetails[year] || [];
+      fetchStudentDetails();
+    }
+  }, [studentId]);
 
-        feeTypes.forEach(feeType => {
-            const feeItem = feeItemsForYear.find(item => item.name === feeType);
-            if (feeItem) {
-                const total = feeItem.amount;
-                const concession = feeItem.concession || 0;
-                const paid = paymentsByYearAndType[year]?.[feeType] || 0;
-                const pending = Math.max(0, total - concession - paid);
+  useEffect(() => {
+    const fetchStudents = async () => {
+      const { data, error } = await supabase
+        .from("students")
+        .select("id, name, roll_number")
+        .order("name", { ascending: true });
 
-                cellData[year][feeType] = { total, paid, pending };
+      if (error) {
+        toast.error("Failed to fetch students.");
+        return;
+      }
+      setStudents(data || []);
+    };
+    fetchStudents();
+  }, []);
 
-                yearlyTotals[year].total += total;
-                yearlyTotals[year].paid += paid;
-                yearlyTotals[year].concession += concession;
-            } else {
-                cellData[year][feeType] = { total: 0, paid: 0, pending: 0 };
-            }
+  const filteredStudents = useMemo(() => {
+    if (!searchText) return students;
+    return students.filter((student) =>
+      student.name.toLowerCase().includes(searchText.toLowerCase()) ||
+      student.roll_number.toLowerCase().includes(searchText.toLowerCase())
+    );
+  }, [students, searchText]);
+
+  const feeSummaryData: FeeSummaryData = useMemo(() => {
+    if (!selectedStudent) return {};
+
+    const summary: FeeSummaryData = {};
+
+    // Initialize summary structure with all years, fee types, and terms
+    Object.keys(selectedStudent.fee_details).forEach(year => {
+      summary[year] = {};
+      const feeItemsForYear = selectedStudent.fee_details[year] || [];
+      
+      // Get all unique fee types for this year across all terms
+      const uniqueFeeTypesInYear = Array.from(new Set(feeItemsForYear.map(item => item.name)));
+
+      uniqueFeeTypesInYear.forEach(feeType => {
+        summary[year][feeType] = {};
+        FIXED_TERMS.forEach(term => {
+          summary[year][feeType][term.name] = {
+            total: 0,
+            paid: 0,
+            concession: 0,
+            balance: 0,
+          };
         });
-        yearlyTotals[year].pending = Math.max(0, yearlyTotals[year].total - yearlyTotals[year].concession - yearlyTotals[year].paid);
+      });
     });
 
-    const overallTotals: FeeSummaryTableData['overallTotals'] = { total: 0, paid: 0, pending: 0, concession: 0 };
-    Object.values(yearlyTotals).forEach(yearTotal => {
-        overallTotals.total += yearTotal.total;
-        overallTotals.paid += yearTotal.paid;
-        overallTotals.concession += yearTotal.concession;
+    // Populate total and concession from fee_details
+    Object.entries(selectedStudent.fee_details).forEach(([year, feeItems]) => {
+      feeItems.forEach(item => {
+        if (summary[year]?.[item.name]?.[item.term_name]) {
+          summary[year][item.name][item.term_name].total = item.amount;
+          summary[year][item.name][item.term_name].concession = item.concession;
+        }
+      });
     });
-    overallTotals.pending = Math.max(0, overallTotals.total - overallTotals.concession - overallTotals.paid);
 
-    return { years, feeTypes, cellData, yearlyTotals, overallTotals };
-  }, [studentRecords, payments]);
+    // Populate paid amounts from payments
+    studentPayments.forEach(payment => {
+      const parts = payment.fee_type.split(' - ');
+      if (parts.length === 3) {
+        const year = parts[0].trim();
+        const term = parts[1].trim();
+        const feeType = parts[2].trim();
+        if (summary[year]?.[feeType]?.[term]) {
+          summary[year][feeType][term].paid += payment.amount;
+        }
+      }
+    });
 
-  const student = studentRecords.length > 0 ? studentRecords[0] : null;
+    // Calculate balances
+    Object.keys(summary).forEach(year => {
+      Object.keys(summary[year]).forEach(feeType => {
+        Object.keys(summary[year][feeType]).forEach(term => {
+          const termData = summary[year][feeType][term];
+          termData.balance = Math.max(0, termData.total - termData.concession - termData.paid);
+        });
+      });
+    });
+
+    return summary;
+  }, [selectedStudent, studentPayments]);
+
+  const handlePaymentSuccess = async () => {
+    if (selectedStudent) {
+      await fetchStudentFinancials(selectedStudent.id);
+    }
+    setIsPayDialogOpen(false);
+  };
+
+  const handlePayClick = (feeType: string, termName: string) => {
+    if (!selectedStudent) return;
+    setPaymentDialogInitialState({ fee_item_name: feeType, payment_year: selectedStudent.studying_year, term_name: termName });
+    setIsPayDialogOpen(true);
+  };
+
+  const handleCollectOtherClick = () => {
+    if (!selectedStudent) return;
+    setPaymentDialogInitialState({ fee_item_name: "", payment_year: "Other", term_name: "" });
+    setIsPayDialogOpen(true);
+  };
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center h-64"><p>Loading student details...</p></div>;
+  }
 
   return (
     <div className="min-h-screen bg-muted/40 flex flex-col items-center p-4 sm:p-8">
@@ -134,55 +212,76 @@ export default function StudentFeesPage() {
           <Card>
             <CardHeader>
               <CardTitle>Student Fee Portal</CardTitle>
-              <CardDescription>Enter your details to view your fee structure.</CardDescription>
+              <CardDescription>Search for a student to view their fee structure and payment history.</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSearch} className="flex flex-wrap items-end gap-4">
-                <div className="flex-grow">
-                  <label htmlFor="roll_number" className="text-sm font-medium">Roll Number</label>
-                  <Input
-                    id="roll_number"
-                    placeholder="Enter your roll number"
-                    value={rollNumber}
-                    onChange={(e) => setRollNumber(e.target.value)}
-                  />
-                </div>
-                <div className="flex-grow">
-                  <label htmlFor="academic_year" className="text-sm font-medium">Academic Year (Optional)</label>
-                  <Input
-                    id="academic_year"
-                    placeholder="e.g., 2024-2025"
-                    value={academicYear}
-                    onChange={(e) => setAcademicYear(e.target.value)}
-                  />
-                </div>
-                <Button type="submit" disabled={isLoading}>
-                  {isLoading ? "Searching..." : "Search"}
-                </Button>
-              </form>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Input
+                  placeholder="Search by name or roll number..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  className="flex-grow"
+                />
+                <Select onValueChange={(value) => {
+                  const student = students.find(s => s.id === value);
+                  setSelectedStudent(student || null);
+                  if (student) {
+                    fetchStudentFinancials(student.id);
+                  }
+                }} value={selectedStudent?.id || ""}>
+                  <SelectTrigger className="w-full sm:w-[200px]">
+                    <SelectValue placeholder="Select a student" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredStudents.map(student => (
+                      <SelectItem key={student.id} value={student.id}>
+                        {student.name} ({student.roll_number})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {student && (
+        {selectedStudent && (
           <div className="print-area space-y-6">
-            <StudentDetailsCard student={student} />
+            <StudentDetailsCard student={selectedStudent} />
             
-            <FeeSummaryTable data={feeSummaryData} isReadOnly={true} />
+            <FeeSummaryTable
+              data={feeSummaryData}
+              onPay={handlePayClick}
+              onCollectOther={handleCollectOtherClick}
+              isReadOnly={true} // This page is read-only for public access
+              student={selectedStudent}
+            />
 
             <OutstandingInvoices 
-              invoices={invoices} 
-              studentRecords={studentRecords} 
+              invoices={studentInvoices} 
+              studentRecords={[selectedStudent]} 
               cashierProfile={null} 
-              onSuccess={() => {}} 
+              onSuccess={handlePaymentSuccess} 
               logActivity={async () => {}} 
               isReadOnly={true} 
             />
 
-            <PaymentHistory payments={payments} student={student} isReadOnly={true}/>
+            <PaymentHistory payments={studentPayments} student={selectedStudent} isReadOnly={true}/>
           </div>
         )}
       </div>
+      {selectedStudent && paymentDialogInitialState && (
+        <PaymentDialog
+          open={isPayDialogOpen}
+          onOpenChange={setIsPayDialogOpen}
+          studentRecords={[selectedStudent]}
+          payments={studentPayments}
+          cashierProfile={null} // No cashier profile for public portal
+          onSuccess={handlePaymentSuccess}
+          logActivity={async () => {}} // No activity logging for public portal
+          initialState={paymentDialogInitialState}
+        />
+      )}
     </div>
   );
 }

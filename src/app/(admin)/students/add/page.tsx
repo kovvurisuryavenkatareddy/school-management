@@ -55,19 +55,12 @@ import {
   DialogTitle,
   DialogDescription, // Added DialogDescription here
 } from "@/components/ui/dialog";
-import { AcademicYear, StudentDetails, StudentType, ClassGroup, StudyingYear, Term, FeeStructure } from "@/types";
+import { AcademicYear, StudentDetails, StudentType, ClassGroup, StudyingYear, Term, FeeStructure, FIXED_TERMS } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FeeStructureEditor } from "@/components/admin/fee-structure-editor";
 import { CreatableCombobox } from "@/components/admin/creatable-combobox";
 import { BulkStudentUpload } from "@/components/admin/bulk-student-upload";
 import { generateInitialFeeDetails } from "@/lib/fee-structure-utils";
-
-// Hardcoded terms
-const FIXED_TERMS: Term[] = [
-  { id: 'term-1', name: 'Term 1', created_at: new Date().toISOString() },
-  { id: 'term-2', name: 'Term 2', created_at: new Date().toISOString() },
-  { id: 'term-3', name: 'Term 3', created_at: new Date().toISOString() },
-];
 
 const studentFormSchema = z.object({
   roll_number: z.string().min(1, "Roll number is required"),

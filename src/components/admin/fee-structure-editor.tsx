@@ -36,15 +36,9 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FeeStructure, FeeItem, StudyingYear, Term } from "@/types";
+import { FeeStructure, FeeItem, StudyingYear, Term, FIXED_TERMS } from "@/types";
 import { getFeeTypesFromStructure } from "@/lib/fee-structure-utils";
 
-// Hardcoded terms and base fee types
-const FIXED_TERMS: Term[] = [
-  { id: 'term-1', name: 'Term 1', created_at: new Date().toISOString() },
-  { id: 'term-2', name: 'Term 2', created_at: new Date().toISOString() },
-  { id: 'term-3', name: 'Term 3', created_at: new Date().toISOString() },
-];
 const BASE_FEE_TYPES = ['Tuition Fee', 'Management Fee', 'JVD Fee'];
 
 interface FeeStructureEditorProps {

@@ -9,16 +9,10 @@ import { Download, Upload, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AcademicYear, StudentType, ClassGroup, StudyingYear, Term, FeeItem, FeeStructure } from "@/types";
+import { AcademicYear, StudentType, ClassGroup, StudyingYear, Term, FeeItem, FeeStructure, FIXED_TERMS } from "@/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { generateInitialFeeDetails, getFeeTypesFromStructure } from "@/lib/fee-structure-utils";
 
-// Hardcoded terms and base fee types
-const FIXED_TERMS: Term[] = [
-  { id: 'term-1', name: 'Term 1', created_at: new Date().toISOString() },
-  { id: 'term-2', name: 'Term 2', created_at: new Date().toISOString() },
-  { id: 'term-3', name: 'Term 3', created_at: new Date().toISOString() },
-];
 const BASE_FEE_TYPES = ['Tuition Fee', 'Management Fee', 'JVD Fee'];
 
 interface BulkStudentUploadProps {

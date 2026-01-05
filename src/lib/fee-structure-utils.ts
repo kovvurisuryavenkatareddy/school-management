@@ -1,11 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
-import { FeeStructure, FeeItem, StudyingYear, Term } from "@/types";
+import { FeeStructure, FeeItem, StudyingYear, Term, FIXED_TERMS } from "@/types";
 
-const FIXED_TERMS: Term[] = [
-  { id: 'term-1', name: 'Term 1', created_at: new Date().toISOString() },
-  { id: 'term-2', name: 'Term 2', created_at: new Date().toISOString() },
-  { id: 'term-3', name: 'Term 3', created_at: new Date().toISOString() },
-];
 const BASE_FEE_TYPES = ['Tuition Fee', 'Management Fee', 'JVD Fee'];
 
 export function generateInitialFeeDetails(

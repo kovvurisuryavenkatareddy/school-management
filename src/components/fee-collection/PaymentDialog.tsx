@@ -12,10 +12,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { StudentDetails, Payment, CashierProfile } from "@/types";
+import { StudentDetails, Payment, CashierProfile, FIXED_TERMS } from "@/types";
 
 const paymentSchema = z.object({
   payment_year: z.string().min(1, "Please select a year or 'Other'"),
+  term_name: z.string().optional(), // New field
   fee_item_name: z.string().min(1, "This field is required"),
   amount: z.coerce.number().min(1, "Amount must be greater than 0"),
   payment_method: z.enum(["cash", "upi"]),
@@ -29,6 +30,15 @@ const paymentSchema = z.object({
 }, {
   message: "UTR Number is required for UPI payments.",
   path: ["utr_number"],
+}).refine(data => {
+  // term_name is required if payment_year is not 'Other'
+  if (data.payment_year !== 'Other' && !data.term_name) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Please select a term.",
+  path: ["term_name"],
 });
 
 interface PaymentDialogProps {
@@ -39,32 +49,35 @@ interface PaymentDialogProps {
   cashierProfile: CashierProfile | null;
   onSuccess: (newPayment: Payment, studentRecord: StudentDetails) => void;
   logActivity: (action: string, details: object, studentId: string) => Promise<void>;
-  initialState: { fee_item_name: string, payment_year: string } | null;
+  initialState: { fee_item_name: string, payment_year: string, term_name: string } | null;
 }
 
 export function PaymentDialog({ open, onOpenChange, studentRecords, payments, cashierProfile, onSuccess, logActivity, initialState }: PaymentDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const form = useForm<z.infer<typeof paymentSchema>>({
     resolver: zodResolver(paymentSchema),
-    defaultValues: { amount: 0, payment_method: "cash", notes: "", payment_year: "", fee_item_name: "", utr_number: "" },
+    defaultValues: { amount: 0, payment_method: "cash", notes: "", payment_year: "", fee_item_name: "", term_name: "", utr_number: "" },
   });
   const watchedPaymentYear = form.watch("payment_year");
+  const watchedTermName = form.watch("term_name");
   const watchedPaymentMethod = form.watch("payment_method");
   const masterFeeDetails = studentRecords.length > 0 ? studentRecords[0].fee_details || {} : {};
 
-  const handleFeeItemChange = (feeItemName: string, yearOverride?: string) => {
+  const handleFeeItemChange = (feeItemName: string, yearOverride?: string, termOverride?: string) => {
     form.setValue('fee_item_name', feeItemName);
     const year = yearOverride || form.getValues("payment_year");
-    if (!year || year === 'Other') {
+    const term = termOverride || form.getValues("term_name");
+
+    if (!year || year === 'Other' || !term) {
         form.setValue('amount', 0);
         return;
     };
 
     const feeItemsForYear = masterFeeDetails[year] || [];
-    const selectedFeeItem = feeItemsForYear.find(item => item.name === feeItemName);
+    const selectedFeeItem = feeItemsForYear.find(item => item.name === feeItemName && item.term_name === term);
 
     if (selectedFeeItem) {
-        const feeTypeString = `${year} - ${feeItemName}`;
+        const feeTypeString = `${year} - ${term} - ${feeItemName}`;
         const paidForThisItem = payments
             .filter(p => p.fee_type === feeTypeString)
             .reduce((sum, p) => sum + p.amount, 0);
@@ -84,19 +97,21 @@ export function PaymentDialog({ open, onOpenChange, studentRecords, payments, ca
         payment_method: "cash",
         notes: "",
         payment_year: initialState.payment_year,
+        term_name: initialState.term_name,
         fee_item_name: initialState.fee_item_name,
         utr_number: "",
       });
 
-      if (initialState.payment_year && initialState.payment_year !== 'Other' && initialState.fee_item_name) {
+      if (initialState.payment_year && initialState.payment_year !== 'Other' && initialState.term_name && initialState.fee_item_name) {
         const year = initialState.payment_year;
+        const term = initialState.term_name;
         const feeItemName = initialState.fee_item_name;
         
         const feeItemsForYear = masterFeeDetails[year] || [];
-        const selectedFeeItem = feeItemsForYear.find(item => item.name === feeItemName);
+        const selectedFeeItem = feeItemsForYear.find(item => item.name === feeItemName && item.term_name === term);
 
         if (selectedFeeItem) {
-            const feeTypeString = `${year} - ${feeItemName}`;
+            const feeTypeString = `${year} - ${term} - ${feeItemName}`;
             const paidForThisItem = payments
                 .filter(p => p.fee_type === feeTypeString)
                 .reduce((sum, p) => sum + p.amount, 0);
@@ -118,7 +133,7 @@ export function PaymentDialog({ open, onOpenChange, studentRecords, payments, ca
     }
 
     setIsSubmitting(true);
-    const feeTypeForDb = values.payment_year === 'Other' ? values.fee_item_name : `${values.payment_year} - ${values.fee_item_name}`;
+    const feeTypeForDb = values.payment_year === 'Other' ? values.fee_item_name : `${values.payment_year} - ${values.term_name} - ${values.fee_item_name}`;
     const paymentData = {
         amount: values.amount,
         payment_method: values.payment_method,
@@ -151,11 +166,13 @@ export function PaymentDialog({ open, onOpenChange, studentRecords, payments, ca
                 <Select onValueChange={(value) => {
                     field.onChange(value);
                     const currentFeeItemName = form.getValues('fee_item_name');
+                    const currentTermName = form.getValues('term_name');
                     if (value === 'Other') {
                       form.setValue('fee_item_name', '');
+                      form.setValue('term_name', '');
                       form.setValue('amount', 0);
-                    } else if (currentFeeItemName) {
-                      handleFeeItemChange(currentFeeItemName, value);
+                    } else if (currentFeeItemName && currentTermName) {
+                      handleFeeItemChange(currentFeeItemName, value, currentTermName);
                     } else {
                       form.setValue('amount', 0);
                     }
@@ -170,16 +187,39 @@ export function PaymentDialog({ open, onOpenChange, studentRecords, payments, ca
             )} />
 
             {watchedPaymentYear && watchedPaymentYear !== 'Other' && (
+              <FormField control={form.control} name="term_name" render={({ field }) => (
+                <FormItem><FormLabel>Term</FormLabel>
+                  <Select onValueChange={(value) => {
+                    field.onChange(value);
+                    const currentFeeItemName = form.getValues('fee_item_name');
+                    if (currentFeeItemName) {
+                      handleFeeItemChange(currentFeeItemName, watchedPaymentYear, value);
+                    } else {
+                      form.setValue('amount', 0);
+                    }
+                  }} value={field.value}>
+                    <FormControl><SelectTrigger><SelectValue placeholder="Select term..." /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      {FIXED_TERMS.map(term => <SelectItem key={term.id} value={term.name}>{term.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                <FormMessage /></FormItem>
+              )} />
+            )}
+
+            {watchedPaymentYear && watchedPaymentYear !== 'Other' && watchedTermName && (
               <FormField control={form.control} name="fee_item_name" render={({ field }) => (
                 <FormItem><FormLabel>Fee Item</FormLabel>
                   <Select onValueChange={(value) => handleFeeItemChange(value)} value={field.value}>
                     <FormControl>
-                      <SelectTrigger disabled={watchedPaymentYear !== 'Other' && !!initialState?.fee_item_name}>
+                      <SelectTrigger disabled={!!initialState?.fee_item_name}>
                         <SelectValue placeholder="Select fee item..." />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {(masterFeeDetails[watchedPaymentYear] || []).map(item => <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>)}
+                      {(masterFeeDetails[watchedPaymentYear] || [])
+                        .filter(item => item.term_name === watchedTermName)
+                        .map(item => <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 <FormMessage /></FormItem>

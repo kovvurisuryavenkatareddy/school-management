@@ -12,10 +12,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Invoice, StudentDetails, CashierProfile, Payment } from "@/types";
+import { Invoice, StudentDetails, CashierProfile, Payment, FIXED_TERMS } from "@/types";
 
 const invoicePaymentSchema = z.object({
   payment_year: z.string().min(1, "Please select a year"),
+  term_name: z.string().min(1, "Please select a term."), // New field
   amount: z.coerce.number().min(0.01, "Amount must be greater than 0"),
   payment_method: z.enum(["cash", "upi"]),
   notes: z.string().optional(),
@@ -53,8 +54,18 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
   useEffect(() => {
     if (invoice) {
       const remainingBalance = invoice.total_amount - (invoice.paid_amount || 0);
+      
+      // Attempt to extract term from batch_description
+      const batchDescParts = invoice.batch_description.split(' for Class ')[0].split(' - ');
+      let extractedTerm = '';
+      if (batchDescParts.length > 1) {
+        // Find if any FIXED_TERMS name is present in the batch description parts
+        extractedTerm = FIXED_TERMS.find(term => batchDescParts.includes(term.name))?.name || '';
+      }
+
       form.reset({
         payment_year: currentYearRecord?.studying_year || '',
+        term_name: extractedTerm || FIXED_TERMS[0].name, // Default to first term if not found
         amount: parseFloat(remainingBalance.toFixed(2)),
         payment_method: "cash",
         notes: "",
@@ -71,14 +82,15 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
     }
     setIsSubmitting(true);
 
-    const feeName = invoice.batch_description.split(" for Class ")[0];
+    const feeName = invoice.batch_description.split(" for Class ")[0]; // This might still contain term, need to refine
+    const feeTypeForDb = `${values.payment_year} - ${values.term_name} - ${feeName}`;
 
     const paymentData = {
       student_id: studentRecordForPayment.id,
       cashier_id: cashierProfile?.id || null,
       amount: values.amount,
       payment_method: values.payment_method,
-      fee_type: `${values.payment_year} - ${feeName}`,
+      fee_type: feeTypeForDb,
       notes: values.notes,
       utr_number: values.payment_method === 'upi' ? values.utr_number : null,
     };
@@ -126,6 +138,16 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
                   <FormControl><SelectTrigger><SelectValue placeholder="Select year..." /></SelectTrigger></FormControl>
                   <SelectContent>
                     {Object.keys(masterFeeDetails).map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              <FormMessage /></FormItem>
+            )} />
+            <FormField control={form.control} name="term_name" render={({ field }) => (
+              <FormItem><FormLabel>Term</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl><SelectTrigger><SelectValue placeholder="Select term..." /></SelectTrigger></FormControl>
+                  <SelectContent>
+                    {FIXED_TERMS.map(term => <SelectItem key={term.id} value={term.name}>{term.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               <FormMessage /></FormItem>

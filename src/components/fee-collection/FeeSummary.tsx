@@ -3,10 +3,10 @@
 import React from "react";
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
-import { FeeSummaryTable, FeeSummaryTableData } from "@/components/fee-collection/FeeSummaryTable";
+import { FeeSummaryTable } from "@/components/fee-collection/FeeSummaryTable";
 import { PaymentDialog } from "@/components/fee-collection/PaymentDialog";
 import { EditConcessionDialog } from "@/components/fee-collection/EditConcessionDialog";
-import { StudentDetails, Payment, CashierProfile } from "@/types";
+import { StudentDetails, Payment, CashierProfile, FIXED_TERMS } from "@/types";
 import { generateReceiptHtml } from "@/lib/receipt-generator";
 
 interface FeeSummaryProps {
@@ -20,7 +20,7 @@ interface FeeSummaryProps {
 export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess, logActivity }: FeeSummaryProps) {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [editConcessionDialogOpen, setEditConcessionDialogOpen] = useState(false);
-  const [paymentDialogInitialState, setPaymentDialogInitialState] = useState<{ fee_item_name: string, payment_year: string } | null>(null);
+  const [paymentDialogInitialState, setPaymentDialogInitialState] = useState<{ fee_item_name: string, payment_year: string, term_name: string } | null>(null);
 
   const handlePrint = (student: StudentDetails, payment: Payment) => {
     const receiptHtml = generateReceiptHtml(student, payment, cashierProfile?.name || null);
@@ -44,7 +44,7 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
     handlePrint(studentForReceipt, newPayment);
   };
 
-  const feeSummaryData: FeeSummaryTableData | null = useMemo(() => {
+  const feeSummaryData: any = useMemo(() => { // Changed to any for now, will refine with FeeSummaryData type
     if (studentRecords.length === 0) return null;
 
     const mergedFeeDetails = studentRecords.reduce<{[year: string]: any[]}>((acc, record) => {
@@ -61,60 +61,54 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
     });
     const feeTypes = Array.from(allFeeTypeNames).sort();
 
-    const paymentsByFeeType: { [type: string]: number } = {};
+    const paymentsByYearTermAndType: { [year: string]: { [term: string]: { [feeType: string]: number } } } = {};
     payments.forEach(p => {
-        paymentsByFeeType[p.fee_type] = (paymentsByFeeType[p.fee_type] || 0) + p.amount;
+        const parts = p.fee_type.split(' - ');
+        if (parts.length >= 3) {
+            const year = parts[0].trim();
+            const term = parts[1].trim();
+            const feeType = parts.slice(2).join(' - ').trim();
+            
+            if (!paymentsByYearTermAndType[year]) paymentsByYearTermAndType[year] = {};
+            if (!paymentsByYearTermAndType[year][term]) paymentsByYearTermAndType[year][term] = {};
+            
+            paymentsByYearTermAndType[year][term][feeType] = (paymentsByYearTermAndType[year][term][feeType] || 0) + p.amount;
+        }
     });
 
-    const cellData: FeeSummaryTableData['cellData'] = {};
-    const yearlyTotals: FeeSummaryTableData['yearlyTotals'] = {};
+    const summary: any = {}; // Will be FeeSummaryData
 
     years.forEach(year => {
-        cellData[year] = {};
-        yearlyTotals[year] = { total: 0, paid: 0, pending: 0, concession: 0 };
-        const feeItemsForYear = mergedFeeDetails[year] || [];
+        summary[year] = {};
+        FIXED_TERMS.forEach(term => {
+            feeTypes.forEach(feeType => {
+                if (!summary[year][feeType]) summary[year][feeType] = {};
 
-        feeTypes.forEach(feeType => {
-            const feeItem = feeItemsForYear.find(item => item.name === feeType);
-            if (feeItem) {
-                const total = feeItem.amount;
-                const concession = feeItem.concession || 0;
-                const paid = paymentsByFeeType[`${year} - ${feeType}`] || 0;
-                const pending = Math.max(0, total - concession - paid);
+                const feeItem = (mergedFeeDetails[year] || []).find(item => item.name === feeType && item.term_name === term.name);
+                
+                const total = feeItem?.amount || 0;
+                const concession = feeItem?.concession || 0;
+                const paid = paymentsByYearTermAndType[year]?.[term.name]?.[feeType] || 0;
+                const balance = Math.max(0, total - concession - paid);
 
-                cellData[year][feeType] = { total, paid, pending };
-
-                yearlyTotals[year].total += total;
-                yearlyTotals[year].paid += paid;
-                yearlyTotals[year].concession += concession;
-            } else {
-                cellData[year][feeType] = { total: 0, paid: 0, pending: 0 };
-            }
+                summary[year][feeType][term.name] = { total, paid, concession, balance };
+            });
         });
-        yearlyTotals[year].pending = Math.max(0, yearlyTotals[year].total - yearlyTotals[year].concession - yearlyTotals[year].paid);
     });
 
-    const overallTotals: FeeSummaryTableData['overallTotals'] = { total: 0, paid: 0, pending: 0, concession: 0 };
-    Object.values(yearlyTotals).forEach(yearTotal => {
-        overallTotals.total += yearTotal.total;
-        overallTotals.paid += yearTotal.paid;
-        overallTotals.concession += yearTotal.concession;
-    });
-    overallTotals.pending = Math.max(0, overallTotals.total - overallTotals.concession - overallTotals.paid);
-
-    return { years, feeTypes, cellData, yearlyTotals, overallTotals };
+    return summary;
   }, [studentRecords, payments]);
 
-  const handlePayClick = (feeType: string) => {
+  const handlePayClick = (feeType: string, termName: string) => {
     const currentRecord = studentRecords.find(r => r.academic_years?.is_active) || studentRecords[studentRecords.length - 1];
     const currentStudyingYear = currentRecord?.studying_year || "";
 
-    setPaymentDialogInitialState({ fee_item_name: feeType, payment_year: currentStudyingYear });
+    setPaymentDialogInitialState({ fee_item_name: feeType, payment_year: currentStudyingYear, term_name: termName });
     setPaymentDialogOpen(true);
   };
 
   const handleCollectOtherClick = () => {
-    setPaymentDialogInitialState({ fee_item_name: "", payment_year: "Other" });
+    setPaymentDialogInitialState({ fee_item_name: "", payment_year: "Other", term_name: "" }); // Term name not applicable for 'Other'
     setPaymentDialogOpen(true);
   };
 
@@ -126,6 +120,7 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
         onCollectOther={handleCollectOtherClick}
         hasDiscountPermission={cashierProfile?.has_discount_permission || false}
         onEditConcession={() => setEditConcessionDialogOpen(true)}
+        student={studentRecords[0]}
       />
       <PaymentDialog
         open={paymentDialogOpen}
