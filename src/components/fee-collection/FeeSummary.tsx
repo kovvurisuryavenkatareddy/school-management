@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { FeeSummaryTable } from "@/components/fee-collection/FeeSummaryTable";
 import { PaymentDialog } from "@/components/fee-collection/PaymentDialog";
 import { EditConcessionDialog } from "@/components/fee-collection/EditConcessionDialog";
-import { StudentDetails, Payment, CashierProfile, FIXED_TERMS } from "@/types";
+import { StudentDetails, Payment, CashierProfile, FIXED_TERMS, FeeSummaryData } from "@/types";
 import { generateReceiptHtml } from "@/lib/receipt-generator";
 
 interface FeeSummaryProps {
@@ -44,7 +44,7 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
     handlePrint(studentForReceipt, newPayment);
   };
 
-  const feeSummaryData: any = useMemo(() => { // Changed to any for now, will refine with FeeSummaryData type
+  const feeSummaryData: FeeSummaryData | null = useMemo(() => {
     if (studentRecords.length === 0) return null;
 
     const mergedFeeDetails = studentRecords.reduce<{[year: string]: any[]}>((acc, record) => {
@@ -55,13 +55,42 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
     }, {});
 
     const years = Object.keys(mergedFeeDetails).sort();
-    const allFeeTypeNames = new Set<string>();
-    Object.values(mergedFeeDetails).forEach(items => {
-        items.forEach(item => allFeeTypeNames.add(item.name));
-    });
-    const feeTypes = Array.from(allFeeTypeNames).sort();
+    const summary: FeeSummaryData = {};
 
-    const paymentsByYearTermAndType: { [year: string]: { [term: string]: { [feeType: string]: number } } } = {};
+    // 1. Process base fees into term structure
+    years.forEach(year => {
+        summary[year] = {};
+        const feeItems = mergedFeeDetails[year] || [];
+
+        feeItems.forEach(item => {
+            const feeName = item.name;
+            if (!summary[year][feeName]) {
+                summary[year][feeName] = {};
+                FIXED_TERMS.forEach(t => {
+                    summary[year][feeName][t.name] = { total: 0, paid: 0, concession: 0, balance: 0 };
+                });
+            }
+
+            // Apply Business Rules for Splitting
+            if (feeName === 'Tuition Fee') {
+                // Split across Term 1 and Term 2
+                summary[year][feeName]['Term 1'].total += item.amount / 2;
+                summary[year][feeName]['Term 2'].total += item.amount / 2;
+                summary[year][feeName]['Term 1'].concession += item.concession / 2;
+                summary[year][feeName]['Term 2'].concession += item.concession / 2;
+            } else if (feeName === 'JVD Fee') {
+                // All in Term 3
+                summary[year][feeName]['Term 3'].total += item.amount;
+                summary[year][feeName]['Term 3'].concession += item.concession;
+            } else {
+                // Other fees (Management, etc.) go to Term 1 by default
+                summary[year][feeName]['Term 1'].total += item.amount;
+                summary[year][feeName]['Term 1'].concession += item.concession;
+            }
+        });
+    });
+
+    // 2. Add payments to the summary
     payments.forEach(p => {
         const parts = p.fee_type.split(' - ');
         if (parts.length >= 3) {
@@ -69,29 +98,32 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
             const term = parts[1].trim();
             const feeType = parts.slice(2).join(' - ').trim();
             
-            if (!paymentsByYearTermAndType[year]) paymentsByYearTermAndType[year] = {};
-            if (!paymentsByYearTermAndType[year][term]) paymentsByYearTermAndType[year][term] = {};
-            
-            paymentsByYearTermAndType[year][term][feeType] = (paymentsByYearTermAndType[year][term][feeType] || 0) + p.amount;
+            if (summary[year]?.[feeType]?.[term]) {
+                summary[year][feeType][term].paid += p.amount;
+            }
+        } else {
+            // Handle legacy payments or "Other" payments by trying to find a match
+            // This is a safety fallback
+            const amount = p.amount;
+            years.forEach(y => {
+                Object.keys(summary[y]).forEach(ft => {
+                    if (p.fee_type.includes(ft)) {
+                        // If it doesn't have a term, put it in Term 1
+                        if (summary[y][ft]['Term 1']) {
+                           // summary[y][ft]['Term 1'].paid += amount; // Disabled to prevent double counting if not structured
+                        }
+                    }
+                });
+            });
         }
     });
 
-    const summary: any = {}; // Will be FeeSummaryData
-
+    // 3. Calculate balances
     years.forEach(year => {
-        summary[year] = {};
-        FIXED_TERMS.forEach(term => {
-            feeTypes.forEach(feeType => {
-                if (!summary[year][feeType]) summary[year][feeType] = {};
-
-                const feeItem = (mergedFeeDetails[year] || []).find(item => item.name === feeType && item.term_name === term.name);
-                
-                const total = feeItem?.amount || 0;
-                const concession = feeItem?.concession || 0;
-                const paid = paymentsByYearTermAndType[year]?.[term.name]?.[feeType] || 0;
-                const balance = Math.max(0, total - concession - paid);
-
-                summary[year][feeType][term.name] = { total, paid, concession, balance };
+        Object.keys(summary[year]).forEach(feeType => {
+            Object.keys(summary[year][feeType]).forEach(term => {
+                const item = summary[year][feeType][term];
+                item.balance = Math.max(0, item.total - item.concession - item.paid);
             });
         });
     });
@@ -108,7 +140,7 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
   };
 
   const handleCollectOtherClick = () => {
-    setPaymentDialogInitialState({ fee_item_name: "", payment_year: "Other", term_name: "" }); // Term name not applicable for 'Other'
+    setPaymentDialogInitialState({ fee_item_name: "", payment_year: "Other", term_name: "" });
     setPaymentDialogOpen(true);
   };
 

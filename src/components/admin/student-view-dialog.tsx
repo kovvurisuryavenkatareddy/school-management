@@ -84,44 +84,59 @@ export function StudentViewDialog({ studentId, open, onOpenChange }: StudentView
 
               {student.fee_details && Object.keys(student.fee_details).length > 0 && (
                 <div className="mt-4 pt-4 border-t">
-                  <h4 className="font-semibold mb-2 text-base">Fee Structure</h4>
+                  <h4 className="font-semibold mb-2 text-base">Fee Structure (Breakdown)</h4>
                   <div className="space-y-4">
                     {Object.entries(student.fee_details).sort(([yearA], [yearB]) => yearA.localeCompare(yearB)).map(([year, feeItems]) => (
-                      feeItems && feeItems.length > 0 && (
-                        <div key={year}>
-                          <h5 className="font-medium text-sm mb-1">{year}</h5>
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Term</TableHead>
-                                <TableHead>Fee Type</TableHead>
-                                <TableHead className="text-right">Amount</TableHead>
-                                <TableHead className="text-right">Concession</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {sortedTerms.map(term => {
-                                const termFeeItems = feeItems.filter(item => item.term_name === term.name);
-                                return termFeeItems.length > 0 ? (
-                                  termFeeItems.map((item, index) => (
-                                    <TableRow key={item.id}>
-                                      {index === 0 && <TableCell rowSpan={termFeeItems.length}>{term.name}</TableCell>}
-                                      <TableCell>{item.name}</TableCell>
-                                      <TableCell className="text-right">{item.amount.toFixed(2)}</TableCell>
-                                      <TableCell className="text-right text-orange-600">{item.concession > 0 ? `-${item.concession.toFixed(2)}` : '0.00'}</TableCell>
-                                    </TableRow>
-                                  ))
+                      <div key={year}>
+                        <h5 className="font-medium text-sm mb-1">{year}</h5>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Term</TableHead>
+                              <TableHead>Fee Type</TableHead>
+                              <TableHead className="text-right">Amount</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {sortedTerms.map(term => {
+                                // Filter and virtualize fees for display
+                                const displayItems: { name: string, amount: number }[] = [];
+                                
+                                feeItems.forEach(item => {
+                                    if (item.name === 'Tuition Fee') {
+                                        if (term.name === 'Term 1' || term.name === 'Term 2') {
+                                            displayItems.push({ name: 'Tuition Fee', amount: item.amount / 2 });
+                                        }
+                                    } else if (item.name === 'JVD Fee') {
+                                        if (term.name === 'Term 3') {
+                                            displayItems.push({ name: 'JVD Fee', amount: item.amount });
+                                        }
+                                    } else {
+                                        // Management etc. in Term 1
+                                        if (term.name === 'Term 1') {
+                                            displayItems.push({ name: item.name, amount: item.amount });
+                                        }
+                                    }
+                                });
+
+                                return displayItems.length > 0 ? (
+                                    displayItems.map((di, idx) => (
+                                        <TableRow key={`${term.name}-${di.name}-${idx}`}>
+                                            {idx === 0 && <TableCell rowSpan={displayItems.length}>{term.name}</TableCell>}
+                                            <TableCell>{di.name}</TableCell>
+                                            <TableCell className="text-right">{di.amount.toFixed(2)}</TableCell>
+                                        </TableRow>
+                                    ))
                                 ) : (
-                                  <TableRow key={`${term.id}-empty`}>
-                                    <TableCell>{term.name}</TableCell>
-                                    <TableCell colSpan={3} className="text-muted-foreground">No fees for this term</TableCell>
-                                  </TableRow>
+                                    <TableRow key={`${term.name}-empty`}>
+                                        <TableCell>{term.name}</TableCell>
+                                        <TableCell colSpan={2} className="text-muted-foreground italic text-xs">N/A</TableCell>
+                                    </TableRow>
                                 );
-                              })}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      )
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
                     ))}
                   </div>
                 </div>
