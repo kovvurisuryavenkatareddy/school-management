@@ -99,13 +99,28 @@ export function useFeeCollection() {
   }, [studentRecords, searchStudent]);
 
   const logActivity = useCallback(async (action: string, details: object, studentId: string) => {
-    if (!sessionUser) return;
-    await supabase.from('activity_logs').insert({
+    // If we don't have a user session in state, fetch it on the fly to be safe
+    let currentUser = sessionUser;
+    if (!currentUser) {
+      const { data } = await supabase.auth.getUser();
+      currentUser = data.user;
+    }
+
+    if (!currentUser) {
+      console.warn("No active session found. Activity not logged.");
+      return;
+    }
+
+    const { error } = await supabase.from('activity_logs').insert({
       cashier_id: cashierProfile?.id || null,
       student_id: studentId,
       action,
       details,
     });
+
+    if (error) {
+      console.error("Logging failed:", error.message);
+    }
   }, [sessionUser, cashierProfile]);
 
   return {
