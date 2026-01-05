@@ -53,6 +53,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogDescription, // Added DialogDescription here
 } from "@/components/ui/dialog";
 import { AcademicYear, StudentDetails, StudentType, ClassGroup, StudyingYear, Term, FeeStructure } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
