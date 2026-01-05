@@ -67,9 +67,9 @@ export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentType
       terms.forEach(term => {
         if (sYear.name === '1st Year') {
           if (term.name === 'Term 1' || term.name === 'Term 2') {
-            sampleFeeData2.push("15000"); // Management Fee
+            sampleFeeData2.push("0"); // Management Fee (now Tuition Fee)
             sampleFeeData2.push("0"); // JVD Fee
-            sampleFeeData2.push("0"); // Tuition Fee
+            sampleFeeData2.push("15000"); // Tuition Fee
           } else if (term.name === 'Term 3') {
             sampleFeeData2.push("0"); // Management Fee
             sampleFeeData2.push("15000"); // JVD Fee
@@ -169,10 +169,8 @@ export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentType
 
                 if (yearName === '1st Year' && student_type_name?.toLowerCase().includes('jvd')) {
                   // Apply fixed JVD logic for 1st Year JVD students
-                  if (term.name === 'Term 1') {
-                    fee_details[yearName].push({ id: uuidv4(), name: 'Management Fee', amount: 15000, concession: 0, term_name: term.name });
-                  } else if (term.name === 'Term 2') {
-                    fee_details[yearName].push({ id: uuidv4(), name: 'Management Fee', amount: 15000, concession: 0, term_name: term.name });
+                  if (term.name === 'Term 1' || term.name === 'Term 2') {
+                    fee_details[yearName].push({ id: uuidv4(), name: 'Tuition Fee', amount: 15000, concession: 0, term_name: term.name }); // Changed from Management Fee
                   } else if (term.name === 'Term 3') {
                     fee_details[yearName].push({ id: uuidv4(), name: 'JVD Fee', amount: 15000, concession: 0, term_name: term.name });
                   }
@@ -273,7 +271,7 @@ export function BulkStudentUpload({ onSuccess, studyingYears, terms, studentType
         <div className="text-sm text-muted-foreground">
           <p><strong>Required Columns:</strong> roll_number, name, class, section, student_type, academic_year, studying_year</p>
           <p><strong>Optional Columns:</strong> email, phone, caste, and term-wise fee columns (e.g., <code>1st_year_term_1_management_fee</code>)</p>
-          <p className="mt-2"><strong>Note for JVD Students:</strong> For 1st Year JVD students, the fee structure will be automatically set to 15,000 Management Fee for Term 1, 15,000 Management Fee for Term 2, and 15,000 JVD Fee for Term 3, regardless of CSV input for these specific fields.</p>
+          <p className="mt-2"><strong>Note for JVD Students:</strong> For 1st Year JVD students, the fee structure will be automatically set to 15,000 Tuition Fee for Term 1, 15,000 Tuition Fee for Term 2, and 15,000 JVD Fee for Term 3, regardless of CSV input for these specific fields.</p>
         </div>
       </CardContent>
     </Card>

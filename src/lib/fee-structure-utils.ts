@@ -16,20 +16,12 @@ export function generateInitialFeeDetails(
 
     terms.forEach(term => {
       if (yearName === '1st Year' && studentTypeName?.toLowerCase().includes('jvd')) {
-        // JVD logic for 1st Year
-        if (term.name === 'Term 1') {
+        // Simplified JVD logic for 1st Year
+        if (term.name === 'Term 1' || term.name === 'Term 2') {
           initialStructure[yearName].push({
             id: uuidv4(),
-            name: 'Management Fee',
-            amount: 15000, // 30000 / 2
-            concession: 0,
-            term_name: term.name,
-          });
-        } else if (term.name === 'Term 2') {
-          initialStructure[yearName].push({
-            id: uuidv4(),
-            name: 'Management Fee',
-            amount: 15000, // 30000 / 2
+            name: 'Tuition Fee', // Changed to Tuition Fee
+            amount: 15000, 
             concession: 0,
             term_name: term.name,
           });
@@ -42,6 +34,7 @@ export function generateInitialFeeDetails(
             term_name: term.name,
           });
         }
+        // No other fee types for 1st Year JVD students in these terms
       } else {
         // Default structure for other years or non-JVD students
         BASE_FEE_TYPES.forEach(feeType => {
