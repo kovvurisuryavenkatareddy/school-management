@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -50,10 +50,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { AcademicYear, StudentType, ClassGroup, StudyingYear, Term, FeeStructure } from "@/types";
+import { AcademicYear, StudentType, ClassGroup, StudyingYear, Term } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FeeStructureEditor } from "@/components/admin/fee-structure-editor";
-import { CreatableCombobox } from "@/components/admin/creatable-combobox"; // Correctly import CreatableCombobox
+import { CreatableCombobox } from "@/components/admin/creatable-combobox";
 
 const studentFormSchema = z.object({
   roll_number: z.string().min(1, "Roll number is required"),
@@ -66,7 +66,7 @@ const studentFormSchema = z.object({
   academic_year_id: z.string().min(1, "Academic year is required"),
   studying_year: z.string().min(1, "Studying year is required"),
   caste: z.string().optional(),
-  fee_details: z.any().optional(), // Will be FeeStructure type
+  fee_details: z.any().optional(),
 });
 
 interface EditStudentFormProps {
@@ -77,9 +77,8 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
   const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [classGroups, setClassGroups] = useState<ClassGroup[]>([]);
-  const [sections, setSections] = useState<Term[]>([]); // Renamed to Term for consistency
+  const [sections, setSections] = useState<Term[]>([]);
   const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
-  const [terms, setTerms] = useState<Term[]>([]); // New state for terms
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
@@ -90,14 +89,13 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
 
   const fetchData = async () => {
     setIsLoading(true);
-    const [typesRes, yearsRes, studentRes, groupsRes, sectionsRes, studyingYearsRes, termsRes] = await Promise.all([
+    const [typesRes, yearsRes, studentRes, groupsRes, sectionsRes, studyingYearsRes] = await Promise.all([
       supabase.from("student_types").select("*"),
       supabase.from("academic_years").select("*").eq('is_active', true).order("year_name", { ascending: false }),
-      supabase.from("students").select("*, student_types(name)").eq("id", studentId).single(), // Fetch student_types name for initial fee details
+      supabase.from("students").select("*, student_types(name)").eq("id", studentId).single(),
       supabase.from("class_groups").select("*"),
       supabase.from("sections").select("*"),
       supabase.from("studying_years").select("*"),
-      supabase.from("terms").select("*").order("name", { ascending: true }), // Fetch terms
     ]);
 
     if (typesRes.error) toast.error("Failed to fetch student types.");
@@ -121,31 +119,23 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
 
     if (studyingYearsRes.error) toast.error("Failed to fetch studying years.");
     else setStudyingYears(studyingYearsRes.data || []);
-
-    if (termsRes.error) toast.error("Failed to fetch terms.");
-    else setTerms(termsRes.data || []);
     
     setIsLoading(false);
   };
 
   useEffect(() => {
     fetchData();
-  }, [studentId, router]);
+  }, [studentId]);
 
   const onStudentSubmit = async (values: z.infer<typeof studentFormSchema>) => {
     setIsSubmitting(true);
-    
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("students")
       .update(values)
-      .eq("id", studentId)
-      .select()
-      .single();
+      .eq("id", studentId);
 
     if (error) {
       toast.error(`Failed to update student: ${error.message}`);
-    } else if (!data) {
-      toast.error("Update failed. The student record could not be found or was not updated.");
     } else {
       toast.success("Student updated successfully!");
       router.push("/students");
@@ -198,7 +188,6 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
                     onChange={field.onChange}
                     onNewOptionAdded={fetchData}
                     tableName="sections"
-                    columnName="name"
                     placeholder="Select or add section..."
                     dialogTitle="Add New Section"
                   />
@@ -212,7 +201,6 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
                     onChange={field.onChange}
                     onNewOptionAdded={fetchData}
                     tableName="studying_years"
-                    columnName="name"
                     placeholder="Select or add year..."
                     dialogTitle="Add New Studying Year"
                   />
@@ -239,23 +227,18 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
               )} />
             </div>
             
-            <FormField
-              control={form.control}
-              name="fee_details"
-              render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <FeeStructureEditor 
-                      value={field.value || {}} 
-                      onChange={field.onChange} 
-                      studyingYears={studyingYears}
-                      terms={terms}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <FormField control={form.control} name="fee_details" render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <FeeStructureEditor 
+                    value={field.value || {}} 
+                    onChange={field.onChange} 
+                    studyingYears={studyingYears}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
 
             <div className="flex justify-end">
               <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save Changes"}</Button>
@@ -277,18 +260,9 @@ function ClassCombobox({ classGroups, value, onChange, onNewGroupAdded }: { clas
     const trimmedName = newGroupName.trim();
     if (!trimmedName) return;
     setIsAdding(true);
-
-    const { data: existing } = await supabase.from("class_groups").select("id").ilike("name", trimmedName).single();
-    if (existing) {
-      toast.error(`Class group "${trimmedName}" already exists.`);
-      setIsAdding(false);
-      return;
-    }
-
     const { data, error } = await supabase.from("class_groups").insert({ name: trimmedName }).select().single();
-    if (error) {
-      toast.error(`Failed to add group: ${error.message}`);
-    } else {
+    if (error) toast.error(`Failed to add group: ${error.message}`);
+    else {
       toast.success("New class group added!");
       onNewGroupAdded();
       onChange(data.name);
@@ -323,8 +297,7 @@ function ClassCombobox({ classGroups, value, onChange, onNewGroupAdded }: { clas
               <CommandSeparator />
               <CommandGroup>
                 <CommandItem onSelect={() => { setOpen(false); setDialogOpen(true); }}>
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Add New Group
+                  <PlusCircle className="mr-2 h-4 w-4" /> Add New Group
                 </CommandItem>
               </CommandGroup>
             </CommandList>
@@ -355,18 +328,9 @@ function StudentTypeCombobox({ studentTypes, value, onChange, onNewTypeAdded }: 
     const trimmedName = newTypeName.trim();
     if (!trimmedName) return;
     setIsAdding(true);
-
-    const { data: existingType } = await supabase.from("student_types").select("id").ilike("name", trimmedName).single();
-    if (existingType) {
-      toast.error(`Student type "${trimmedName}" already exists.`);
-      setIsAdding(false);
-      return;
-    }
-
     const { data, error } = await supabase.from("student_types").insert({ name: trimmedName }).select().single();
-    if (error) {
-      toast.error(`Failed to add type: ${error.message}`);
-    } else {
+    if (error) toast.error(`Failed to add type: ${error.message}`);
+    else {
       toast.success("New student type added!");
       onNewTypeAdded();
       onChange(data.id);
@@ -401,8 +365,7 @@ function StudentTypeCombobox({ studentTypes, value, onChange, onNewTypeAdded }: 
               <CommandSeparator />
               <CommandGroup>
                 <CommandItem onSelect={() => { setOpen(false); setDialogOpen(true); }}>
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Add New Type
+                  <PlusCircle className="mr-2 h-4 w-4" /> Add New Type
                 </CommandItem>
               </CommandGroup>
             </CommandList>
@@ -411,10 +374,7 @@ function StudentTypeCombobox({ studentTypes, value, onChange, onNewTypeAdded }: 
       </Popover>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Student Type</DialogTitle>
-            <DialogDescription>Enter the name for the new student type.</DialogDescription>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Add New Student Type</DialogTitle></DialogHeader>
           <Input value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} placeholder="e.g., Day Scholar" />
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
