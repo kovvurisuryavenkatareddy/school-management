@@ -8,6 +8,7 @@ import { PaymentDialog } from "@/components/fee-collection/PaymentDialog";
 import { EditConcessionDialog } from "@/components/fee-collection/EditConcessionDialog";
 import { StudentDetails, Payment, CashierProfile, FIXED_TERMS, FeeSummaryData } from "@/types";
 import { generateReceiptHtml } from "@/lib/receipt-generator";
+import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
 
 interface FeeSummaryProps {
   studentRecords: StudentDetails[];
@@ -47,7 +48,14 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
   const feeSummaryData: FeeSummaryData | null = useMemo(() => {
     if (studentRecords.length === 0) return null;
 
-    const mergedFeeDetails = studentRecords.reduce<{[year: string]: any[]}>((acc, record) => {
+    // 1. Normalize all records to ensure they have term splitting
+    const normalizedRecords = studentRecords.map(record => ({
+      ...record,
+      fee_details: normalizeFeeStructure(record.fee_details)
+    }));
+
+    // 2. Merge normalized fee structures across all years found in student records
+    const mergedFeeDetails = normalizedRecords.reduce<{[year: string]: any[]}>((acc, record) => {
         if (record.fee_details) {
             Object.assign(acc, record.fee_details);
         }
@@ -57,13 +65,15 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
     const years = Object.keys(mergedFeeDetails).sort();
     const summary: FeeSummaryData = {};
 
-    // 1. Process base fees into term structure
+    // 3. Build summary from granular term-specific items
     years.forEach(year => {
         summary[year] = {};
         const feeItems = mergedFeeDetails[year] || [];
 
         feeItems.forEach(item => {
             const feeName = item.name;
+            const termName = item.term_name;
+
             if (!summary[year][feeName]) {
                 summary[year][feeName] = {};
                 FIXED_TERMS.forEach(t => {
@@ -71,26 +81,14 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
                 });
             }
 
-            // Apply Business Rules for Splitting
-            if (feeName === 'Tuition Fee') {
-                // Split across Term 1 and Term 2
-                summary[year][feeName]['Term 1'].total += item.amount / 2;
-                summary[year][feeName]['Term 2'].total += item.amount / 2;
-                summary[year][feeName]['Term 1'].concession += item.concession / 2;
-                summary[year][feeName]['Term 2'].concession += item.concession / 2;
-            } else if (feeName === 'JVD Fee') {
-                // All in Term 3
-                summary[year][feeName]['Term 3'].total += item.amount;
-                summary[year][feeName]['Term 3'].concession += item.concession;
-            } else {
-                // Other fees (Management, etc.) go to Term 1 by default
-                summary[year][feeName]['Term 1'].total += item.amount;
-                summary[year][feeName]['Term 1'].concession += item.concession;
+            if (summary[year][feeName][termName]) {
+                summary[year][feeName][termName].total += item.amount;
+                summary[year][feeName][termName].concession += item.concession;
             }
         });
     });
 
-    // 2. Add payments to the summary
+    // 4. Add payments to the summary
     payments.forEach(p => {
         const parts = p.fee_type.split(' - ');
         if (parts.length >= 3) {
@@ -101,24 +99,10 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
             if (summary[year]?.[feeType]?.[term]) {
                 summary[year][feeType][term].paid += p.amount;
             }
-        } else {
-            // Handle legacy payments or "Other" payments by trying to find a match
-            // This is a safety fallback
-            const amount = p.amount;
-            years.forEach(y => {
-                Object.keys(summary[y]).forEach(ft => {
-                    if (p.fee_type.includes(ft)) {
-                        // If it doesn't have a term, put it in Term 1
-                        if (summary[y][ft]['Term 1']) {
-                           // summary[y][ft]['Term 1'].paid += amount; // Disabled to prevent double counting if not structured
-                        }
-                    }
-                });
-            });
         }
     });
 
-    // 3. Calculate balances
+    // 5. Calculate final balances
     years.forEach(year => {
         Object.keys(summary[year]).forEach(feeType => {
             Object.keys(summary[year][feeType]).forEach(term => {
