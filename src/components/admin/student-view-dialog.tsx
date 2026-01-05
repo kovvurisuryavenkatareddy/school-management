@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { normalizeFeeStructure } from '@/lib/fee-structure-utils';
 
 interface StudentViewDialogProps {
   studentId: string | null;
@@ -40,7 +41,12 @@ export function StudentViewDialog({ studentId, open, onOpenChange }: StudentView
           toast.error("Failed to fetch student details.");
           onOpenChange(false);
         } else {
-          setStudent(data as StudentDetails);
+          // Normalize the data for consistent display
+          const normalizedStudent = {
+            ...data,
+            fee_details: normalizeFeeStructure(data.fee_details)
+          };
+          setStudent(normalizedStudent as StudentDetails);
         }
         setIsLoading(false);
       }
@@ -99,37 +105,19 @@ export function StudentViewDialog({ studentId, open, onOpenChange }: StudentView
                           </TableHeader>
                           <TableBody>
                             {sortedTerms.map(term => {
-                                // Filter and virtualize fees for display
-                                const displayItems: { name: string, amount: number }[] = [];
-                                
-                                feeItems.forEach(item => {
-                                    if (item.name === 'Tuition Fee') {
-                                        if (term.name === 'Term 1' || term.name === 'Term 2') {
-                                            displayItems.push({ name: 'Tuition Fee', amount: item.amount / 2 });
-                                        }
-                                    } else if (item.name === 'JVD Fee') {
-                                        if (term.name === 'Term 3') {
-                                            displayItems.push({ name: 'JVD Fee', amount: item.amount });
-                                        }
-                                    } else {
-                                        // Management etc. in Term 1
-                                        if (term.name === 'Term 1') {
-                                            displayItems.push({ name: item.name, amount: item.amount });
-                                        }
-                                    }
-                                });
+                                const matchingItems = feeItems.filter(item => item.term_name === term.name);
 
-                                return displayItems.length > 0 ? (
-                                    displayItems.map((di, idx) => (
-                                        <TableRow key={`${term.name}-${di.name}-${idx}`}>
-                                            {idx === 0 && <TableCell rowSpan={displayItems.length}>{term.name}</TableCell>}
-                                            <TableCell>{di.name}</TableCell>
-                                            <TableCell className="text-right">{di.amount.toFixed(2)}</TableCell>
+                                return matchingItems.length > 0 ? (
+                                    matchingItems.map((item, idx) => (
+                                        <TableRow key={`${term.name}-${item.id}-${idx}`}>
+                                            {idx === 0 && <TableCell rowSpan={matchingItems.length} className="font-medium">{term.name}</TableCell>}
+                                            <TableCell>{item.name}</TableCell>
+                                            <TableCell className="text-right">₹{item.amount.toFixed(2)}</TableCell>
                                         </TableRow>
                                     ))
                                 ) : (
                                     <TableRow key={`${term.name}-empty`}>
-                                        <TableCell>{term.name}</TableCell>
+                                        <TableCell className="font-medium">{term.name}</TableCell>
                                         <TableCell colSpan={2} className="text-muted-foreground italic text-xs">N/A</TableCell>
                                     </TableRow>
                                 );

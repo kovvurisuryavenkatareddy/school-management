@@ -118,30 +118,6 @@ export default function StudentListPage() {
     const from = (currentPage - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    let studentIdsToInclude: string[] | null = null;
-
-    // Handle Payment Status + Term Filtering via Invoices
-    if (selectedTerm !== 'all' && selectedPaymentStatus !== 'all') {
-      const { data: ids, error: rpcError } = await supabase.rpc('get_students_with_outstanding_invoices_by_term', {
-        term_name_in: selectedTerm
-      });
-
-      if (!rpcError) {
-        if (selectedPaymentStatus === 'outstanding') {
-          studentIdsToInclude = ids || [];
-          if (studentIdsToInclude.length === 0) {
-            setStudents([]);
-            setTotalCount(0);
-            setIsLoading(false);
-            return;
-          }
-        } else if (selectedPaymentStatus === 'paid') {
-          // Tricky: we want students NOT in the outstanding list for this term
-          // For simplicity, we filter out these IDs in the main query
-        }
-      }
-    }
-
     let query = supabase
       .from("students")
       .select("id, roll_number, name, class, section, studying_year, student_types(name), academic_year_id", { count: 'exact' });
@@ -168,7 +144,7 @@ export default function StudentListPage() {
         term_name_in: selectedTerm
       });
       
-      const ids = outstandingIds || [];
+      const ids = (outstandingIds as string[]) || [];
       if (selectedPaymentStatus === 'outstanding') {
         if (ids.length > 0) {
           query = query.in('id', ids);
@@ -365,16 +341,16 @@ export default function StudentListPage() {
             </div>
           </div>
           
-          <div className="flex flex-wrap items-end gap-3 pt-4">
-            <div className="w-full md:w-[250px]">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-4">
+            <div className="space-y-1.5">
               <Label htmlFor="search-term">Search</Label>
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="search-term"
                   type="search"
-                  placeholder="Name or roll number..."
-                  className="w-full rounded-lg bg-background pl-8"
+                  placeholder="Name or roll..."
+                  className="w-full rounded-lg bg-background pl-8 h-9"
                   value={searchTerm}
                   onChange={(e) => {
                     setSearchTerm(e.target.value);
@@ -383,56 +359,56 @@ export default function StudentListPage() {
                 />
               </div>
             </div>
-            <div className="flex-1 min-w-[120px]">
+            <div className="space-y-1.5">
               <Label>Class</Label>
               <Select value={selectedClass} onValueChange={(value) => { setSelectedClass(value); setCurrentPage(1); }}>
-                <SelectTrigger><SelectValue placeholder="All Classes" /></SelectTrigger>
+                <SelectTrigger className="h-9"><SelectValue placeholder="All Classes" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Classes</SelectItem>
                   {classOptions.map(option => <SelectItem key={option.id} value={option.name}>{option.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 min-w-[120px]">
+            <div className="space-y-1.5">
+              <Label>Academic Year</Label>
+              <Select value={selectedAcademicYearFilter} onValueChange={(value) => { setSelectedAcademicYearFilter(value); setCurrentPage(1); }}>
+                <SelectTrigger className="h-9"><SelectValue placeholder="All Years" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Years</SelectItem>
+                  {academicYearOptions.map(option => <SelectItem key={option.id} value={option.id}>{option.year_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label>Studying Year</Label>
               <Select value={selectedStudyingYear} onValueChange={(value) => { setSelectedStudyingYear(value); setCurrentPage(1); }}>
-                <SelectTrigger><SelectValue placeholder="All Years" /></SelectTrigger>
+                <SelectTrigger className="h-9"><SelectValue placeholder="All Years" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Years</SelectItem>
                   {studyingYearOptions.map(option => <SelectItem key={option.id} value={option.name}>{option.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 min-w-[120px]">
-              <Label>Academic Year</Label>
-              <Select value={selectedAcademicYearFilter} onValueChange={(value) => { setSelectedAcademicYearFilter(value); setCurrentPage(1); }}>
-                <SelectTrigger><SelectValue placeholder="All Academic Years" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Academic Years</SelectItem>
-                  {academicYearOptions.map(option => <SelectItem key={option.id} value={option.id}>{option.year_name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
 
             {/* Term-wise Filtering */}
-            <div className="flex-1 min-w-[120px] bg-primary/5 p-2 rounded-lg border border-primary/20">
-              <Label className="flex items-center gap-1 text-primary"><Filter className="h-3 w-3" /> Term</Label>
+            <div className="space-y-1.5">
+              <Label>Term</Label>
               <Select value={selectedTerm} onValueChange={(value) => { setSelectedTerm(value); setCurrentPage(1); }}>
-                <SelectTrigger className="border-primary/20"><SelectValue placeholder="All Terms" /></SelectTrigger>
+                <SelectTrigger className="h-9"><SelectValue placeholder="All Terms" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Terms</SelectItem>
                   {FIXED_TERMS.map(term => <SelectItem key={term.id} value={term.name}>{term.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 min-w-[150px] bg-primary/5 p-2 rounded-lg border border-primary/20">
-              <Label className="flex items-center gap-1 text-primary"><Filter className="h-3 w-3" /> Payment Status</Label>
+            <div className="space-y-1.5">
+              <Label>Payment Status</Label>
               <Select value={selectedPaymentStatus} onValueChange={(value) => { setSelectedPaymentStatus(value); setCurrentPage(1); }}>
-                <SelectTrigger className="border-primary/20"><SelectValue placeholder="All" /></SelectTrigger>
+                <SelectTrigger className="h-9"><SelectValue placeholder="All Statuses" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="outstanding">Outstanding (Unpaid)</SelectItem>
-                  <SelectItem value="paid">Paid (No Unpaid Invoices)</SelectItem>
+                  <SelectItem value="outstanding">Unpaid</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
                 </SelectContent>
               </Select>
             </div>
