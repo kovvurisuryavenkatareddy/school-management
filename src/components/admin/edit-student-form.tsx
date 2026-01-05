@@ -53,7 +53,7 @@ import {
 import { AcademicYear, StudentType, ClassGroup, StudyingYear, Term, FeeStructure } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FeeStructureEditor } from "@/components/admin/fee-structure-editor";
-import { CreatableStringCombobox } from "@/components/admin/creatable-combobox"; // Assuming this is for string options
+import { CreatableCombobox } from "@/components/admin/creatable-combobox"; // Correctly import CreatableCombobox
 
 const studentFormSchema = z.object({
   roll_number: z.string().min(1, "Roll number is required"),
@@ -192,12 +192,30 @@ export function EditStudentForm({ studentId }: EditStudentFormProps) {
               )} />
               <FormField control={form.control} name="section" render={({ field }) => (
                 <FormItem className="flex flex-col"><FormLabel>Section</FormLabel>
-                  <CreatableStringCombobox options={sections.map(s => s.name)} value={field.value} onChange={field.onChange} placeholder="Select or type section..." />
+                  <CreatableCombobox
+                    options={sections}
+                    value={field.value}
+                    onChange={field.onChange}
+                    onNewOptionAdded={fetchData}
+                    tableName="sections"
+                    columnName="name"
+                    placeholder="Select or add section..."
+                    dialogTitle="Add New Section"
+                  />
                 <FormMessage /></FormItem>
               )} />
               <FormField control={form.control} name="studying_year" render={({ field }) => (
                 <FormItem className="flex flex-col"><FormLabel>Studying Year</FormLabel>
-                  <CreatableStringCombobox options={studyingYears.map(s => s.name)} value={field.value} onChange={field.onChange} placeholder="Select or type year..." />
+                  <CreatableCombobox
+                    options={studyingYears}
+                    value={field.value}
+                    onChange={field.onChange}
+                    onNewOptionAdded={fetchData}
+                    tableName="studying_years"
+                    columnName="name"
+                    placeholder="Select or add year..."
+                    dialogTitle="Add New Studying Year"
+                  />
                 <FormMessage /></FormItem>
               )} />
               <FormField control={form.control} name="academic_year_id" render={({ field }) => (
@@ -324,37 +342,6 @@ function ClassCombobox({ classGroups, value, onChange, onNewGroupAdded }: { clas
         </DialogContent>
       </Dialog>
     </>
-  );
-}
-
-function CreatableStringCombobox({ options, value, onChange, placeholder }: { options: string[], value: string, onChange: (value: string) => void, placeholder: string }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between">
-          {value || placeholder}
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-        <Command filter={(value, search) => value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}>
-          <CommandInput placeholder="Search or type new..." value={value} onValueChange={onChange} />
-          <CommandList>
-            <CommandEmpty>No results. Press enter to add.</CommandEmpty>
-            <CommandGroup>
-              {options.map((option) => (
-                <CommandItem key={option} value={option} onSelect={() => { onChange(option); setOpen(false); }}>
-                  <Check className={cn("mr-2 h-4 w-4", value === option ? "opacity-100" : "opacity-0")} />
-                  {option}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
   );
 }
 
