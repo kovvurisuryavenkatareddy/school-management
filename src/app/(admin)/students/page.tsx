@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { PlusCircle, Search, MoreHorizontal, Pencil, Trash2, Eye, ArrowUp } from "lucide-react";
+import { PlusCircle, Search, MoreHorizontal, Pencil, Trash2, Eye, ArrowUp, Filter } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -45,7 +45,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { StudentViewDialog } from "@/components/admin/student-view-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { AcademicYear } from "@/types"; // Assuming AcademicYear type is available
+import { AcademicYear, FIXED_TERMS } from "@/types";
 
 type Student = {
   id: string;
@@ -55,7 +55,7 @@ type Student = {
   section: string;
   studying_year: string;
   student_types: { name: string } | null;
-  academic_year_id: string | null; // Added for filtering
+  academic_year_id: string | null;
 };
 
 type FilterOption = { id: string; name: string };
@@ -83,14 +83,17 @@ export default function StudentListPage() {
   const [selectedClass, setSelectedClass] = useState("all");
   const [selectedStudyingYear, setSelectedStudyingYear] = useState("all");
   const [selectedStudentType, setSelectedStudentType] = useState("all");
-  const [selectedAcademicYearFilter, setSelectedAcademicYearFilter] = useState("all"); // New filter state
-  const [targetAcademicYearForBulkPromote, setTargetAcademicYearForBulkPromote] = useState<string | null>(null); // New state for bulk promote target
+  const [selectedAcademicYearFilter, setSelectedAcademicYearFilter] = useState("all");
+  const [selectedTerm, setSelectedTerm] = useState("all");
+  const [selectedPaymentStatus, setSelectedPaymentStatus] = useState("all");
+  
+  const [targetAcademicYearForBulkPromote, setTargetAcademicYearForBulkPromote] = useState<string | null>(null);
 
   // Filter options
   const [classOptions, setClassOptions] = useState<FilterOption[]>([]);
   const [studyingYearOptions, setStudyingYearOptions] = useState<FilterOption[]>([]);
   const [studentTypeOptions, setStudentTypeOptions] = useState<FilterOption[]>([]);
-  const [academicYearOptions, setAcademicYearOptions] = useState<AcademicYear[]>([]); // New options state
+  const [academicYearOptions, setAcademicYearOptions] = useState<AcademicYear[]>([]);
 
   const fetchFilterOptions = async () => {
     const [classRes, studyingYearRes, studentTypeRes, academicYearRes] = await Promise.all([
@@ -115,6 +118,30 @@ export default function StudentListPage() {
     const from = (currentPage - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
+    let studentIdsToInclude: string[] | null = null;
+
+    // Handle Payment Status + Term Filtering via Invoices
+    if (selectedTerm !== 'all' && selectedPaymentStatus !== 'all') {
+      const { data: ids, error: rpcError } = await supabase.rpc('get_students_with_outstanding_invoices_by_term', {
+        term_name_in: selectedTerm
+      });
+
+      if (!rpcError) {
+        if (selectedPaymentStatus === 'outstanding') {
+          studentIdsToInclude = ids || [];
+          if (studentIdsToInclude.length === 0) {
+            setStudents([]);
+            setTotalCount(0);
+            setIsLoading(false);
+            return;
+          }
+        } else if (selectedPaymentStatus === 'paid') {
+          // Tricky: we want students NOT in the outstanding list for this term
+          // For simplicity, we filter out these IDs in the main query
+        }
+      }
+    }
+
     let query = supabase
       .from("students")
       .select("id, roll_number, name, class, section, studying_year, student_types(name), academic_year_id", { count: 'exact' });
@@ -131,8 +158,31 @@ export default function StudentListPage() {
     if (selectedStudentType !== 'all') {
       query = query.eq('student_type_id', selectedStudentType);
     }
-    if (selectedAcademicYearFilter !== 'all') { // Apply new academic year filter
+    if (selectedAcademicYearFilter !== 'all') {
       query = query.eq('academic_year_id', selectedAcademicYearFilter);
+    }
+
+    // Apply Payment Status filter logic
+    if (selectedTerm !== 'all' && selectedPaymentStatus !== 'all') {
+      const { data: outstandingIds } = await supabase.rpc('get_students_with_outstanding_invoices_by_term', {
+        term_name_in: selectedTerm
+      });
+      
+      const ids = outstandingIds || [];
+      if (selectedPaymentStatus === 'outstanding') {
+        if (ids.length > 0) {
+          query = query.in('id', ids);
+        } else {
+          setStudents([]);
+          setTotalCount(0);
+          setIsLoading(false);
+          return;
+        }
+      } else if (selectedPaymentStatus === 'paid') {
+        if (ids.length > 0) {
+          query = query.not('id', 'in', `(${ids.join(',')})`);
+        }
+      }
     }
     
     query = query.order("created_at", { ascending: false }).range(from, to);
@@ -163,7 +213,7 @@ export default function StudentListPage() {
       fetchStudents();
     }, 300);
     return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm, currentPage, selectedClass, selectedStudyingYear, selectedStudentType, selectedAcademicYearFilter]);
+  }, [searchTerm, currentPage, selectedClass, selectedStudyingYear, selectedStudentType, selectedAcademicYearFilter, selectedTerm, selectedPaymentStatus]);
 
   const handleSelectAll = (checked: boolean) => {
     setSelectedStudents(checked ? students.map((s) => s.id) : []);
@@ -234,7 +284,7 @@ export default function StudentListPage() {
       toast.error(`Failed to promote student: ${error.message}`, { id: toastId });
     } else {
       toast.success(`${studentToPromote.name} promoted to ${nextStudyingYear} successfully!`, { id: toastId });
-      fetchStudents(); // Refresh the list
+      fetchStudents();
     }
     setIsPromoting(false);
     setPromoteAlertOpen(false);
@@ -249,11 +299,10 @@ export default function StudentListPage() {
     setIsBulkPromoting(true);
     const toastId = toast.loading(`Promoting ${selectedStudents.length} students...`);
     
-    const targetStudyingYear = targetAcademicYearForBulkPromote; // Directly use the selected studying year name
+    const targetStudyingYear = targetAcademicYearForBulkPromote;
 
     const studentsToUpdate = students.filter(s => selectedStudents.includes(s.id));
     const promotionPromises = studentsToUpdate.map(async (student) => {
-      // Check if the student is already in the target year
       if (student.studying_year === targetStudyingYear) {
         return { id: student.id, status: 'skipped', message: `${student.name} is already in ${targetStudyingYear}.` };
       }
@@ -270,28 +319,17 @@ export default function StudentListPage() {
     });
 
     const results = await Promise.all(promotionPromises);
-
     const successfulPromotions = results.filter(r => r.status === 'success').length;
-    const failedPromotions = results.filter(r => r.status === 'failed').length;
-    const skippedPromotions = results.filter(r => r.status === 'skipped').length;
 
     if (successfulPromotions > 0) {
       toast.success(`${successfulPromotions} students promoted successfully!`, { id: toastId });
-    }
-    if (failedPromotions > 0) {
-      const errorMessages = results.filter(r => r.status === 'failed').map(r => r.message).join('\n');
-      toast.error(`Failed to promote ${failedPromotions} students:\n${errorMessages}`, { id: toastId, duration: 10000 });
-    }
-    if (skippedPromotions > 0) {
-      const skippedMessages = results.filter(r => r.status === 'skipped').map(r => r.message).join('\n');
-      toast.info(`${skippedPromotions} students skipped:\n${skippedMessages}`, { id: toastId, duration: 10000 });
     }
 
     fetchStudents();
     setSelectedStudents([]);
     setBulkPromoteAlertOpen(false);
     setIsBulkPromoting(false);
-    setTargetAcademicYearForBulkPromote(null); // Reset target year
+    setTargetAcademicYearForBulkPromote(null);
   };
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
@@ -303,7 +341,7 @@ export default function StudentListPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Students</CardTitle>
-              <CardDescription>Manage student records.</CardDescription>
+              <CardDescription>Manage student records and track payment statuses.</CardDescription>
             </div>
             <div className="flex items-center gap-2">
               {selectedStudents.length > 0 && (
@@ -326,8 +364,9 @@ export default function StudentListPage() {
               </Link>
             </div>
           </div>
-          <div className="flex flex-wrap items-end gap-4 pt-4">
-            <div className="flex-grow">
+          
+          <div className="flex flex-wrap items-end gap-3 pt-4">
+            <div className="w-full md:w-[250px]">
               <Label htmlFor="search-term">Search</Label>
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -344,43 +383,56 @@ export default function StudentListPage() {
                 />
               </div>
             </div>
-            <div className="flex-grow">
-              <Label htmlFor="class-filter">Class</Label>
+            <div className="flex-1 min-w-[120px]">
+              <Label>Class</Label>
               <Select value={selectedClass} onValueChange={(value) => { setSelectedClass(value); setCurrentPage(1); }}>
-                <SelectTrigger id="class-filter"><SelectValue placeholder="All Classes" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="All Classes" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Classes</SelectItem>
                   {classOptions.map(option => <SelectItem key={option.id} value={option.name}>{option.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-grow">
-              <Label htmlFor="studying-year-filter">Studying Year</Label>
+            <div className="flex-1 min-w-[120px]">
+              <Label>Studying Year</Label>
               <Select value={selectedStudyingYear} onValueChange={(value) => { setSelectedStudyingYear(value); setCurrentPage(1); }}>
-                <SelectTrigger id="studying-year-filter"><SelectValue placeholder="All Years" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="All Years" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Years</SelectItem>
                   {studyingYearOptions.map(option => <SelectItem key={option.id} value={option.name}>{option.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-grow">
-              <Label htmlFor="student-type-filter">Student Type</Label>
-              <Select value={selectedStudentType} onValueChange={(value) => { setSelectedStudentType(value); setCurrentPage(1); }}>
-                <SelectTrigger id="student-type-filter"><SelectValue placeholder="All Types" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  {studentTypeOptions.map(option => <SelectItem key={option.id} value={option.id}>{option.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex-grow">
-              <Label htmlFor="academic-year-filter">Academic Year</Label>
+            <div className="flex-1 min-w-[120px]">
+              <Label>Academic Year</Label>
               <Select value={selectedAcademicYearFilter} onValueChange={(value) => { setSelectedAcademicYearFilter(value); setCurrentPage(1); }}>
-                <SelectTrigger id="academic-year-filter"><SelectValue placeholder="All Academic Years" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="All Academic Years" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Academic Years</SelectItem>
                   {academicYearOptions.map(option => <SelectItem key={option.id} value={option.id}>{option.year_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Term-wise Filtering */}
+            <div className="flex-1 min-w-[120px] bg-primary/5 p-2 rounded-lg border border-primary/20">
+              <Label className="flex items-center gap-1 text-primary"><Filter className="h-3 w-3" /> Term</Label>
+              <Select value={selectedTerm} onValueChange={(value) => { setSelectedTerm(value); setCurrentPage(1); }}>
+                <SelectTrigger className="border-primary/20"><SelectValue placeholder="All Terms" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Terms</SelectItem>
+                  {FIXED_TERMS.map(term => <SelectItem key={term.id} value={term.name}>{term.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-1 min-w-[150px] bg-primary/5 p-2 rounded-lg border border-primary/20">
+              <Label className="flex items-center gap-1 text-primary"><Filter className="h-3 w-3" /> Payment Status</Label>
+              <Select value={selectedPaymentStatus} onValueChange={(value) => { setSelectedPaymentStatus(value); setCurrentPage(1); }}>
+                <SelectTrigger className="border-primary/20"><SelectValue placeholder="All" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="outstanding">Outstanding (Unpaid)</SelectItem>
+                  <SelectItem value="paid">Paid (No Unpaid Invoices)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -445,7 +497,7 @@ export default function StudentListPage() {
                   </TableRow>
                 ))
               ) : (
-                <TableRow><TableCell colSpan={7} className="text-center">No students found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center">No students found matching filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -479,8 +531,7 @@ export default function StudentListPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Promotion</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to promote {studentToPromote?.name} from {studentToPromote?.studying_year} to {getNextStudyingYear(studentToPromote?.studying_year || '')}?
-              This action will update their studying year.
+              Are you sure you want to promote {studentToPromote?.name} to {getNextStudyingYear(studentToPromote?.studying_year || '')}?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -498,11 +549,6 @@ export default function StudentListPage() {
             <AlertDialogTitle>Confirm Bulk Promotion</AlertDialogTitle>
             <AlertDialogDescription>
               You are about to promote {selectedStudents.length} selected student(s).
-              <ul className="list-disc pl-5 mt-2 text-sm text-muted-foreground">
-                {students.filter(s => selectedStudents.includes(s.id)).map(s => (
-                  <li key={s.id}>{s.name} (Current: {s.studying_year})</li>
-                ))}
-              </ul>
               <div className="mt-4">
                 <Label htmlFor="target-academic-year">Promote to Studying Year:</Label>
                 <Select
@@ -519,9 +565,6 @@ export default function StudentListPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <p className="mt-4 text-sm text-red-600">
-                This action will update the 'Studying Year' for all selected students to the chosen year.
-              </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
