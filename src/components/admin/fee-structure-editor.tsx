@@ -22,6 +22,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { PlusCircle, Trash2 } from "lucide-react";
@@ -118,7 +119,6 @@ export function FeeStructureEditor({ value, onChange, studyingYears }: FeeStruct
       (item: FeeItem) => item.term_name === termName && item.name === feeTypeName
     );
 
-    // If item doesn't exist (e.g., custom fee type was added but not for this specific term yet)
     if (!feeItem) {
       if (!newValue[studyingYear]) newValue[studyingYear] = [];
       feeItem = {
