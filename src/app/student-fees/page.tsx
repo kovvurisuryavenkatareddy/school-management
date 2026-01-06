@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   StudentDetails,
+  StudentListItem,
   StudyingYear,
   FeeSummaryData,
   Payment,
@@ -31,8 +32,11 @@ import { PaymentDialog } from "@/components/fee-collection/PaymentDialog"; // Im
 
 const BASE_FEE_TYPES = ['Tuition Fee', 'Management Fee', 'JVD Fee'];
 
-export default function StudentFeesPage() {
-  const [students, setStudents] = useState<StudentDetails[]>([]);
+// Mark page as dynamic to support useSearchParams during export
+export const dynamic = 'force-dynamic';
+
+function StudentFeesPageContent() {
+  const [students, setStudents] = useState<StudentListItem[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentDetails | null>(null);
   const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
   const [searchText, setSearchText] = useState("");
@@ -222,11 +226,27 @@ export default function StudentFeesPage() {
                   onChange={(e) => setSearchText(e.target.value)}
                   className="flex-grow"
                 />
-                <Select onValueChange={(value) => {
-                  const student = students.find(s => s.id === value);
-                  setSelectedStudent(student || null);
-                  if (student) {
-                    fetchStudentFinancials(student.id);
+                <Select onValueChange={async (value) => {
+                  const studentListItem = students.find(s => s.id === value);
+                  if (studentListItem) {
+                    setIsLoading(true);
+                    const { data: studentData, error: studentError } = await supabase
+                      .from("students")
+                      .select("*, student_types(name), academic_years(*)")
+                      .eq("id", studentListItem.id)
+                      .single();
+
+                    if (studentError) {
+                      toast.error("Failed to fetch student details.");
+                      setIsLoading(false);
+                      return;
+                    }
+
+                    setSelectedStudent(studentData);
+                    await fetchStudentFinancials(studentListItem.id);
+                    setIsLoading(false);
+                  } else {
+                    setSelectedStudent(null);
                   }
                 }} value={selectedStudent?.id || ""}>
                   <SelectTrigger className="w-full sm:w-[200px]">
@@ -283,5 +303,13 @@ export default function StudentFeesPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function StudentFeesPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><p>Loading...</p></div>}>
+      <StudentFeesPageContent />
+    </Suspense>
   );
 }

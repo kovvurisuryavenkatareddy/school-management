@@ -24,6 +24,18 @@ export type StudyingYear = {
   created_at: string;
 };
 
+export type StudentType = {
+  id: string;
+  name: string; // e.g., "Day Scholar", "Hostel"
+  created_at: string;
+};
+
+export type ClassGroup = {
+  id: string;
+  name: string; // e.g., "BSc", "BA"
+  created_at: string;
+};
+
 export type FeeItem = {
   id: string;
   name: string; // e.g., "Tuition Fee", "Management Fee", "JVD Fee"
@@ -33,6 +45,12 @@ export type FeeItem = {
 };
 
 export type FeeStructure = { [studyingYear: string]: FeeItem[] };
+
+export type StudentListItem = {
+  id: string;
+  name: string;
+  roll_number: string;
+};
 
 export type StudentDetails = {
   id: string; name: string; roll_number: string; class: string; section: string; studying_year: string;
