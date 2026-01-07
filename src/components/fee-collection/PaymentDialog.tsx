@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -12,7 +12,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { StudentDetails, Payment, CashierProfile } from "@/types";
+import { StudentDetails, Payment, CashierProfile, FeeItem } from "@/types";
+import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
 
 const paymentSchema = z.object({
   amount: z.coerce.number().min(0.01, "Amount must be greater than 0"),
@@ -47,9 +48,17 @@ export function PaymentDialog({ open, onOpenChange, studentRecords, cashierProfi
   const watchedAmount = form.watch("amount");
   const watchedMethod = form.watch("payment_method");
 
-  // Immediate validation logic
+  // Derive the breakdown of fees for this specific term
+  const termBreakdown = useMemo(() => {
+    const record = studentRecords.find(r => r.studying_year === context.year) || studentRecords[0];
+    if (!record) return [];
+    
+    const normalized = normalizeFeeStructure(record.fee_details);
+    const items = normalized[context.year] || [];
+    return items.filter(item => item.term_name === context.term && item.amount > 0);
+  }, [studentRecords, context.year, context.term]);
+
   const isAmountValid = watchedAmount > 0 && watchedAmount <= context.balance;
-  const isUtrRequired = watchedMethod === 'upi' && (!form.getValues("utr_number")?.trim());
 
   useEffect(() => {
     if (open) {
@@ -100,30 +109,59 @@ export function PaymentDialog({ open, onOpenChange, studentRecords, cashierProfi
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Term Payment Collection</DialogTitle></DialogHeader>
         
-        <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 p-4 text-sm mb-4 border">
-          <div className="space-y-1">
-            <p className="text-muted-foreground">Term Name</p>
-            <p className="font-bold">{context.term}</p>
+        <div className="space-y-4">
+          {/* Term Metadata */}
+          <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 p-3 text-sm border">
+            <div className="space-y-1">
+              <p className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">Term Name</p>
+              <p className="font-bold">{context.term} ({context.year})</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">Net Balance</p>
+              <p className="font-bold text-red-600">₹{context.balance.toFixed(2)}</p>
+            </div>
           </div>
-          <div className="space-y-1">
-            <p className="text-muted-foreground">Total Amount</p>
-            <p className="font-bold">₹{context.total.toFixed(2)}</p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-muted-foreground">Already Paid</p>
-            <p className="font-bold text-green-600">₹{context.paid.toFixed(2)}</p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-muted-foreground">Remaining Balance</p>
-            <p className="font-bold text-red-600">₹{context.balance.toFixed(2)}</p>
+
+          {/* Fee Breakdown Section */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">Fee Breakdown</p>
+            <div className="rounded-lg border bg-card text-card-foreground shadow-sm overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/50 border-b">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium">Fee Type</th>
+                    <th className="px-3 py-2 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {termBreakdown.map((item) => (
+                    <tr key={item.id}>
+                      <td className="px-3 py-2 text-muted-foreground">{item.name}</td>
+                      <td className="px-3 py-2 text-right font-medium">₹{item.amount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {termBreakdown.length === 0 && (
+                    <tr>
+                      <td colSpan={2} className="px-3 py-4 text-center text-muted-foreground italic">No fee breakdown available.</td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot className="bg-muted/20">
+                  <tr className="font-bold">
+                    <td className="px-3 py-2">Total Term Cost</td>
+                    <td className="px-3 py-2 text-right">₹{context.total.toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
         </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-2">
             <FormField control={form.control} name="amount" render={({ field }) => (
               <FormItem>
-                <FormLabel>Enter Amount to Pay</FormLabel>
+                <FormLabel className="font-bold">Amount to Pay</FormLabel>
                 <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
                 {watchedAmount > context.balance && (
                   <p className="text-[0.8rem] font-medium text-destructive">Amount exceeds remaining balance!</p>
@@ -132,26 +170,28 @@ export function PaymentDialog({ open, onOpenChange, studentRecords, cashierProfi
               </FormItem>
             )} />
 
-            <FormField control={form.control} name="payment_method" render={({ field }) => (
-              <FormItem><FormLabel>Payment Method</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                  <SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="upi">UPI</SelectItem></SelectContent>
-                </Select>
-              <FormMessage /></FormItem>
-            )} />
-
-            {watchedMethod === 'upi' && (
-              <FormField control={form.control} name="utr_number" render={({ field }) => (
-                <FormItem><FormLabel>UTR Number</FormLabel><FormControl><Input placeholder="Enter UTR number" {...field} /></FormControl><FormMessage /></FormItem>
+            <div className="grid grid-cols-2 gap-4">
+              <FormField control={form.control} name="payment_method" render={({ field }) => (
+                <FormItem><FormLabel>Method</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="upi">UPI</SelectItem></SelectContent>
+                  </Select>
+                <FormMessage /></FormItem>
               )} />
-            )}
+
+              {watchedMethod === 'upi' && (
+                <FormField control={form.control} name="utr_number" render={({ field }) => (
+                  <FormItem><FormLabel>UTR Number</FormLabel><FormControl><Input placeholder="UTR #" {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+              )}
+            </div>
 
             <FormField control={form.control} name="notes" render={({ field }) => (
-              <FormItem><FormLabel>Note (Optional)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              <FormItem><FormLabel>Note (Optional)</FormLabel><FormControl><Input placeholder="Add a comment..." {...field} /></FormControl><FormMessage /></FormItem>
             )} />
 
-            <DialogFooter className="pt-4">
+            <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button type="submit" disabled={isSubmitting || !isAmountValid || (watchedMethod === 'upi' && !form.getValues('utr_number')?.trim())}>
                 {isSubmitting ? "Processing..." : "Confirm Payment"}
