@@ -15,6 +15,7 @@ import {
   Settings,
   History,
   PanelRight,
+  ClipboardList,
 } from "lucide-react";
 import {
   Sheet,
@@ -55,6 +56,7 @@ const allNavItems = [
     { href: "/class-management", icon: Library, label: "Class Management", roles: ['admin'] },
     { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['admin'] },
     { href: "/fee-collection", icon: Receipt, label: "Fee Collection", roles: ['admin', 'cashier'] },
+    { href: "/fee-paid-report", icon: ClipboardList, label: "Fee Paid Report", roles: ['admin', 'cashier'] },
     { href: "/settings", icon: Settings, label: "Settings", roles: ['admin'] },
 ];
 
@@ -70,7 +72,8 @@ export function Header({ userName, userRole, isSidebarExpanded, onToggleSidebar,
     return true;
   });
 
-  const pageTitle = allNavItems.find(item => pathname.startsWith(item.href))?.label || "Admin";
+  const pageItem = allNavItems.find(item => pathname.startsWith(item.href));
+  const pageTitle = pageItem?.label || "Admin";
   const portalTitle = userRole === 'admin' ? 'Admin Portal' : 'Cashier Portal';
   const homeLink = userRole === 'admin' ? '/dashboard' : '/fee-collection';
 

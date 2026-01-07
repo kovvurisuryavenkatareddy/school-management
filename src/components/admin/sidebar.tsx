@@ -13,6 +13,7 @@ import {
   Library,
   Package2,
   History,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -33,6 +34,7 @@ const allNavItems = [
   { href: "/class-management", icon: Library, label: "Class Management", roles: ['admin'] },
   { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['admin'] },
   { href: "/fee-collection", icon: Receipt, label: "Fee Collection", roles: ['admin', 'cashier'] },
+  { href: "/fee-paid-report", icon: ClipboardList, label: "Fee Paid Report", roles: ['admin', 'cashier'] },
 ];
 
 export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'admin' | 'cashier', isExpanded: boolean, cashierProfile: any }) {
