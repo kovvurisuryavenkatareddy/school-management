@@ -59,12 +59,12 @@ export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'a
       <div className="flex h-full max-h-screen flex-col">
         <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
           <Link href={homeLink} className="flex items-center gap-2 font-semibold">
-            <Package2 className="h-6 w-6" />
-            {isExpanded && <span className="">{portalTitle}</span>}
+            <Package2 className="h-6 w-6 text-primary" />
+            {isExpanded && <span className="font-ubuntu text-lg tracking-tight">{portalTitle}</span>}
           </Link>
         </div>
-        <div className="flex-1 overflow-auto py-2">
-          <nav className={cn("grid items-start text-sm font-medium", isExpanded ? "px-2" : "px-2 flex flex-col items-center gap-2")}>
+        <div className="flex-1 overflow-auto py-4">
+          <nav className={cn("grid items-start gap-1 px-2", !isExpanded && "justify-center")}>
             <TooltipProvider>
               {navItems.map((item) => (
                 isExpanded ? (
@@ -72,8 +72,8 @@ export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'a
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                      pathname.startsWith(item.href) && "bg-muted text-primary"
+                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all hover:bg-muted hover:text-primary",
+                      pathname.startsWith(item.href) ? "bg-primary/10 text-primary" : "text-muted-foreground"
                     )}
                   >
                     <item.icon className="h-4 w-4" />
@@ -85,27 +85,25 @@ export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'a
                       <Link
                         href={item.href}
                         className={cn(
-                          "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground",
-                          pathname.startsWith(item.href) && "bg-accent text-accent-foreground"
+                          "flex h-9 w-9 items-center justify-center rounded-md transition-colors",
+                          pathname.startsWith(item.href) ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-primary"
                         )}
                       >
                         <item.icon className="h-5 w-5" />
                         <span className="sr-only">{item.label}</span>
                       </Link>
                     </TooltipTrigger>
-                    <TooltipContent side="right">{item.label}</TooltipContent>
+                    <TooltipContent side="right" className="font-medium">{item.label}</TooltipContent>
                   </Tooltip>
                 )
               ))}
             </TooltipProvider>
           </nav>
         </div>
-        <div className="mt-auto p-2">
-          <p className="text-center text-xs text-muted-foreground mt-2">
-  {isExpanded
-    ? `© ${new Date().getFullYear()} Sanju Animations. All rights reserved.`
-    : "SA"}
-</p>
+        <div className="mt-auto border-t p-4">
+          <p className="text-center text-[10px] text-muted-foreground font-medium uppercase tracking-widest">
+            {isExpanded ? `© ${new Date().getFullYear()} Sanju Animations` : "SA"}
+          </p>
         </div>
       </div>
     </aside>

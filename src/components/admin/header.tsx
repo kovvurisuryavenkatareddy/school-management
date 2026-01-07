@@ -73,7 +73,7 @@ export function Header({ userName, userRole, isSidebarExpanded, onToggleSidebar,
   });
 
   const pageItem = allNavItems.find(item => pathname.startsWith(item.href));
-  const pageTitle = pageItem?.label || "Admin";
+  const pageTitle = pageItem?.label || "Portal";
   const portalTitle = userRole === 'admin' ? 'Admin Portal' : 'Cashier Portal';
   const homeLink = userRole === 'admin' ? '/dashboard' : '/fee-collection';
 
@@ -87,30 +87,30 @@ export function Header({ userName, userRole, isSidebarExpanded, onToggleSidebar,
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6 print:hidden">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background/80 backdrop-blur-md px-4 sm:h-16 sm:px-6 print:hidden">
       <Sheet>
         <SheetTrigger asChild>
-          <Button size="icon" variant="outline" className="sm:hidden">
+          <Button size="icon" variant="ghost" className="sm:hidden">
             <PanelLeft className="h-5 w-5" />
             <span className="sr-only">Toggle Menu</span>
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="sm:max-w-xs">
-          <nav className="grid gap-6 text-lg font-medium">
+        <SheetContent side="left" className="w-[280px] sm:w-[350px]">
+          <nav className="grid gap-4 text-base font-medium pt-8">
             <Link
               href={homeLink}
-              className="group flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-full bg-primary text-lg font-semibold text-primary-foreground md:text-base"
+              className="flex items-center gap-2 text-primary font-bold text-xl mb-4"
             >
-              <Package2 className="h-5 w-5 transition-all group-hover:scale-110" />
-              <span className="sr-only">{portalTitle}</span>
+              <Package2 className="h-6 w-6" />
+              <span className="font-ubuntu tracking-tight">{portalTitle}</span>
             </Link>
             {navItems.map(item => (
               <Link
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-4 px-2.5 text-muted-foreground hover:text-foreground",
-                  pathname.startsWith(item.href) && "text-foreground"
+                  "flex items-center gap-4 rounded-md px-3 py-2 transition-colors hover:bg-muted",
+                  pathname.startsWith(item.href) ? "bg-primary/10 text-primary" : "text-muted-foreground"
                 )}
               >
                 <item.icon className="h-5 w-5" />
@@ -120,39 +120,50 @@ export function Header({ userName, userRole, isSidebarExpanded, onToggleSidebar,
           </nav>
         </SheetContent>
       </Sheet>
-      <Button size="icon" variant="outline" className="hidden sm:inline-flex" onClick={onToggleSidebar}>
+      
+      <Button size="icon" variant="ghost" className="hidden sm:inline-flex" onClick={onToggleSidebar}>
         {isSidebarExpanded ? <PanelLeft className="h-5 w-5" /> : <PanelRight className="h-5 w-5" />}
         <span className="sr-only">Toggle Sidebar</span>
       </Button>
-      <Breadcrumb className="hidden md:flex">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href={homeLink}>Dashboard</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-      <div className="ml-auto flex items-center gap-2">
+
+      <div className="flex-1">
+        <Breadcrumb className="hidden md:flex">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href={homeLink} className="text-muted-foreground hover:text-primary transition-colors">Portal</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage className="font-semibold text-foreground">{pageTitle}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      </div>
+
+      <div className="flex items-center gap-3">
         <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
-              variant="outline"
-              size="icon"
-              className="overflow-hidden rounded-full"
+              variant="ghost"
+              className="relative h-10 w-10 rounded-full border bg-muted/50 p-0 hover:bg-muted transition-colors"
             >
-              <UserCircle className="h-5 w-5" />
+              <UserCircle className="h-6 w-6 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>{userName || 'My Account'}</DropdownMenuLabel>
+          <DropdownMenuContent align="end" className="w-56 mt-2">
+            <DropdownMenuLabel className="font-normal">
+              <div className="flex flex-col space-y-1">
+                <p className="text-sm font-semibold leading-none">{userName || 'User'}</p>
+                <p className="text-xs leading-none text-muted-foreground uppercase tracking-wider">{userRole}</p>
+              </div>
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout}>Logout</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive cursor-pointer">
+              Logout
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
