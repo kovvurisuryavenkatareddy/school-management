@@ -15,11 +15,11 @@ import { FIXED_TERMS, StudentDetails, Payment } from "@/types";
 import { cn } from "@/lib/utils";
 
 interface FeeSummaryTableProps {
-  data: any | null; // Keep for compatibility if needed, but we'll use student/payments
+  data: any | null; 
   onPay: (year: string, term: string) => void;
   isReadOnly?: boolean;
   student: StudentDetails | null;
-  payments?: Payment[]; // We'll need payments for term-level totals
+  payments?: Payment[]; 
 }
 
 export function FeeSummaryTable({ student, payments = [], onPay, isReadOnly = false }: FeeSummaryTableProps) {
@@ -28,13 +28,15 @@ export function FeeSummaryTable({ student, payments = [], onPay, isReadOnly = fa
   const years = Object.keys(student.fee_details).sort((a, b) => a.localeCompare(b));
   const sortedTerms = FIXED_TERMS.sort((a, b) => a.name.localeCompare(b.name));
 
-  // Calculate detailed grid data
   const yearlyGrids = useMemo(() => {
     const grids: any = {};
 
     years.forEach(year => {
       const items = student.fee_details[year] || [];
-      const feeTypes = Array.from(new Set(items.map(i => i.name))).sort();
+      // Filter out 'Management Fee' as requested
+      const feeTypes = Array.from(new Set(items.map(i => i.name)))
+        .filter(name => name !== "Management Fee")
+        .sort();
       
       grids[year] = {
         feeTypes,
@@ -51,6 +53,7 @@ export function FeeSummaryTable({ student, payments = [], onPay, isReadOnly = fa
           return acc;
         }, {}),
         termTotals: sortedTerms.reduce((acc: any, term) => {
+          // Total Net still includes Management Fee in calculation to ensure financial accuracy
           const totalNet = items
             .filter(i => i.term_name === term.name)
             .reduce((sum, i) => sum + (i.amount - i.concession), 0);
@@ -77,49 +80,50 @@ export function FeeSummaryTable({ student, payments = [], onPay, isReadOnly = fa
   }, 0);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {years.map((year) => {
         const grid = yearlyGrids[year];
         const yearBalance = Object.values(grid.termTotals).reduce((sum: number, t: any) => sum + t.balance, 0);
 
         return (
-          <Card key={year} className="overflow-hidden">
-            <CardHeader className="bg-muted/30 border-b">
+          <Card key={year} className="overflow-hidden border-muted-foreground/20">
+            <CardHeader className="bg-muted/30 border-b py-3">
               <div className="flex justify-between items-center">
                 <div>
-                  <CardTitle>{year} Fee Details</CardTitle>
-                  <CardDescription>Breakdown of fees across terms.</CardDescription>
+                  <CardTitle className="text-base">{year} Fee Details</CardTitle>
+                  <CardDescription className="text-xs">Detailed breakdown per term.</CardDescription>
                 </div>
-                <div className={cn("text-lg font-bold", yearBalance > 0 ? "text-red-600" : "text-green-600")}>
-                  Year Balance: ₹{yearBalance.toFixed(2)}
+                <div className={cn("text-sm font-bold px-3 py-1 rounded-full", 
+                  yearBalance > 0 ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400")}>
+                  Year Balance: ₹{yearBalance.toLocaleString()}
                 </div>
               </div>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[200px] pl-6 bg-muted/10">Fee Type</TableHead>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-[180px] pl-6 bg-muted/20 text-xs font-semibold uppercase tracking-wider">Fee Type</TableHead>
                     {sortedTerms.map(term => (
-                      <TableHead key={term.id} className="text-right min-w-[120px]">{term.name}</TableHead>
+                      <TableHead key={term.id} className="text-right text-xs font-semibold uppercase tracking-wider">{term.name}</TableHead>
                     ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {grid.feeTypes.map((type: string) => (
-                    <TableRow key={type}>
-                      <TableCell className="pl-6 font-medium bg-muted/5">{type}</TableCell>
+                    <TableRow key={type} className="group transition-colors">
+                      <TableCell className="pl-6 font-medium text-sm border-r bg-muted/5 group-hover:bg-muted/10">{type}</TableCell>
                       {sortedTerms.map(term => {
                         const cell = grid.matrix[type][term.name];
                         return (
-                          <TableCell key={term.id} className="text-right">
-                            <div className="flex flex-col">
-                              <span className={cn(cell.amount === 0 && "text-muted-foreground/40")}>
-                                ₹{cell.amount.toFixed(2)}
+                          <TableCell key={term.id} className="text-right py-2">
+                            <div className="flex flex-col items-end">
+                              <span className={cn("text-sm", cell.amount === 0 && "text-muted-foreground/30")}>
+                                ₹{cell.amount.toLocaleString()}
                               </span>
                               {cell.concession > 0 && (
-                                <span className="text-[10px] text-green-600 font-medium">
-                                  -₹{cell.concession.toFixed(2)} Conc.
+                                <span className="text-[10px] text-green-600 dark:text-green-400 font-medium bg-green-100 dark:bg-green-900/30 px-1 rounded">
+                                  -₹{cell.concession.toLocaleString()} Conc.
                                 </span>
                               )}
                             </div>
@@ -130,43 +134,43 @@ export function FeeSummaryTable({ student, payments = [], onPay, isReadOnly = fa
                   ))}
                   
                   {/* Summary Rows */}
-                  <TableRow className="border-t-2 bg-primary/5 font-bold">
-                    <TableCell className="pl-6">Term Total</TableCell>
+                  <TableRow className="border-t-2 bg-primary/5 font-semibold hover:bg-primary/5">
+                    <TableCell className="pl-6 text-sm border-r">Term Total</TableCell>
                     {sortedTerms.map(term => (
-                      <TableCell key={term.id} className="text-right">
-                        ₹{grid.termTotals[term.name].total.toFixed(2)}
+                      <TableCell key={term.id} className="text-right text-sm">
+                        ₹{grid.termTotals[term.name].total.toLocaleString()}
                       </TableCell>
                     ))}
                   </TableRow>
                   
-                  <TableRow className="bg-green-50/50 text-green-700 font-bold">
-                    <TableCell className="pl-6">Amount Paid</TableCell>
+                  <TableRow className="bg-green-50/50 dark:bg-green-900/10 text-green-700 dark:text-green-400 font-bold hover:bg-green-50/70 dark:hover:bg-green-900/20">
+                    <TableCell className="pl-6 text-sm border-r">Amount Paid</TableCell>
                     {sortedTerms.map(term => (
-                      <TableCell key={term.id} className="text-right">
-                        ₹{grid.termTotals[term.name].paid.toFixed(2)}
+                      <TableCell key={term.id} className="text-right text-sm">
+                        ₹{grid.termTotals[term.name].paid.toLocaleString()}
                       </TableCell>
                     ))}
                   </TableRow>
 
-                  <TableRow className="bg-red-50/30 text-red-600 font-bold">
-                    <TableCell className="pl-6">Balance</TableCell>
+                  <TableRow className="bg-red-50/30 dark:bg-red-900/10 text-red-600 dark:text-red-400 font-bold hover:bg-red-50/50 dark:hover:bg-red-900/20">
+                    <TableCell className="pl-6 text-sm border-r">Balance</TableCell>
                     {sortedTerms.map(term => (
-                      <TableCell key={term.id} className="text-right">
-                        ₹{grid.termTotals[term.name].balance.toFixed(2)}
+                      <TableCell key={term.id} className="text-right text-sm">
+                        ₹{grid.termTotals[term.name].balance.toLocaleString()}
                       </TableCell>
                     ))}
                   </TableRow>
 
                   {!isReadOnly && (
-                    <TableRow className="bg-muted/5">
-                      <TableCell className="pl-6 font-medium">Action</TableCell>
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell className="pl-6 text-xs font-semibold uppercase text-muted-foreground border-r">Action</TableCell>
                       {sortedTerms.map(term => (
-                        <TableCell key={term.id} className="text-right">
+                        <TableCell key={term.id} className="text-right py-3">
                           <Button 
                             size="sm" 
                             onClick={() => onPay(year, term.name)} 
                             disabled={grid.termTotals[term.name].balance <= 0}
-                            className="w-20"
+                            className="h-8 w-20 text-xs"
                             variant={grid.termTotals[term.name].balance <= 0 ? "outline" : "default"}
                           >
                             {grid.termTotals[term.name].balance <= 0 ? "Paid" : "Pay"}
@@ -182,10 +186,12 @@ export function FeeSummaryTable({ student, payments = [], onPay, isReadOnly = fa
         );
       })}
 
-      <div className="flex justify-end p-6 rounded-lg bg-primary text-primary-foreground">
-        <div className="text-right">
-          <p className="text-sm opacity-80">Total Outstanding Balance (All Years)</p>
-          <p className="text-4xl font-bold">₹{overallBalance.toFixed(2)}</p>
+      <div className="flex justify-end pt-2">
+        <div className="bg-primary/10 border border-primary/20 rounded-lg px-6 py-3 text-right">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Total Outstanding (All Years)</p>
+          <p className={cn("text-2xl font-black", overallBalance > 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400")}>
+            ₹{overallBalance.toLocaleString()}
+          </p>
         </div>
       </div>
     </div>
