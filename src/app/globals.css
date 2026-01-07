@@ -8,24 +8,26 @@
   :root {
     --font-poppins: 'Poppins', sans-serif;
     --font-ubuntu: 'Ubuntu', sans-serif;
-    --background: 210 17% 98%;
-    --foreground: 222 47% 11%;
+    
+    /* Soft Light Mode Palette */
+    --background: 210 40% 98%; /* Soft off-white blue tint */
+    --foreground: 224 71% 4%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 224 71% 4%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;
+    --popover-foreground: 224 71% 4%;
+    --primary: 221 83% 53%; /* Vibrant Blue */
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222 47% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 210 40% 95%; /* Subtle gray-blue for backgrounds */
+    --muted-foreground: 215.4 16.3% 44%;
     --accent: 210 40% 96.1%;
     --accent-foreground: 222 47% 11.2%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    --border: 214.3 31.8% 91%;
+    --input: 214.3 31.8% 91%;
     --ring: 221 83% 53%;
     --radius: 0.75rem;
     
@@ -33,21 +35,21 @@
     --sidebar-foreground: 240 5% 26%;
     --sidebar-primary: 221 83% 53%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent: 210 40% 98%;
     --sidebar-accent-foreground: 221 83% 53%;
-    --sidebar-border: 240 5.9% 90%;
+    --sidebar-border: 220 13% 91%;
     --sidebar-ring: 221 83% 53%;
   }
 
   .dark {
-    --background: 222 47% 11%;
+    --background: 224 71% 4%;
     --foreground: 210 40% 98%;
-    --card: 222 47% 11%;
+    --card: 224 71% 4%;
     --card-foreground: 210 40% 98%;
-    --popover: 222 47% 11%;
+    --popover: 224 71% 4%;
     --popover-foreground: 210 40% 98%;
     --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
+    --primary-foreground: 224 71% 4%;
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
     --muted: 217.2 32.6% 17.5%;
@@ -60,7 +62,7 @@
     --input: 217.2 32.6% 17.5%;
     --ring: 224.3 76.3% 48%;
     
-    --sidebar-background: 222 47% 11%;
+    --sidebar-background: 224 71% 4%;
     --sidebar-foreground: 240 5% 96%;
     --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
@@ -81,6 +83,11 @@
   h1, h2, h3, h4, h5, h6 {
     @apply font-ubuntu font-bold tracking-tight;
   }
+}
+
+/* Card Depth Enhancement in Light Mode */
+.card-shadow {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
 }
 
 /* Custom Scrollbar */

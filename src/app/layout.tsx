@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
   title: "Fee Management System",
-  description: "Admin portal for fee management",
+  description: "Modern administrative portal for school fee management",
 };
 
 export default function RootLayout({
@@ -15,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="antialiased">
+      <body className="antialiased selection:bg-primary/20 selection:text-primary">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -23,7 +23,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
-          <Toaster />
+          <Toaster position="top-center" richColors />
         </ThemeProvider>
       </body>
     </html>
