@@ -28,7 +28,6 @@ import { FeeSummaryTable } from "@/components/fee-collection/FeeSummaryTable";
 import { StudentDetailsCard } from "@/components/fee-collection/StudentDetailsCard";
 import { OutstandingInvoices } from "@/components/fee-collection/OutstandingInvoices";
 import { PaymentHistory } from "@/components/fee-collection/PaymentHistory";
-import { PaymentDialog } from "@/components/fee-collection/PaymentDialog"; // Import PaymentDialog
 
 const BASE_FEE_TYPES = ['Tuition Fee', 'Management Fee', 'JVD Fee'];
 
@@ -40,8 +39,6 @@ function StudentFeesPageContent() {
   const [selectedStudent, setSelectedStudent] = useState<StudentDetails | null>(null);
   const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
   const [searchText, setSearchText] = useState("");
-  const [isPayDialogOpen, setIsPayDialogOpen] = useState(false);
-  const [paymentDialogInitialState, setPaymentDialogInitialState] = useState<{ fee_item_name: string, payment_year: string, term_name: string } | null>(null);
   const [studentPayments, setStudentPayments] = useState<Payment[]>([]);
   const [studentInvoices, setStudentInvoices] = useState<any[]>([]); // Using any for now, will refine with Invoice type
 
@@ -186,23 +183,17 @@ function StudentFeesPageContent() {
     return summary;
   }, [selectedStudent, studentPayments]);
 
+
+  const handlePayClick = (year: string, term: string) => {
+    // This is read-only, so this won't be called, but we need to match the signature
+    // If needed in the future, we can implement payment collection here
+  };
+
   const handlePaymentSuccess = async () => {
+    // Refresh student financials after payment (even though this is read-only)
     if (selectedStudent) {
       await fetchStudentFinancials(selectedStudent.id);
     }
-    setIsPayDialogOpen(false);
-  };
-
-  const handlePayClick = (feeType: string, termName: string) => {
-    if (!selectedStudent) return;
-    setPaymentDialogInitialState({ fee_item_name: feeType, payment_year: selectedStudent.studying_year, term_name: termName });
-    setIsPayDialogOpen(true);
-  };
-
-  const handleCollectOtherClick = () => {
-    if (!selectedStudent) return;
-    setPaymentDialogInitialState({ fee_item_name: "", payment_year: "Other", term_name: "" });
-    setIsPayDialogOpen(true);
   };
 
   if (isLoading) {
@@ -272,7 +263,6 @@ function StudentFeesPageContent() {
             <FeeSummaryTable
               data={feeSummaryData}
               onPay={handlePayClick}
-              onCollectOther={handleCollectOtherClick}
               isReadOnly={true} // This page is read-only for public access
               student={selectedStudent}
             />
@@ -290,18 +280,6 @@ function StudentFeesPageContent() {
           </div>
         )}
       </div>
-      {selectedStudent && paymentDialogInitialState && (
-        <PaymentDialog
-          open={isPayDialogOpen}
-          onOpenChange={setIsPayDialogOpen}
-          studentRecords={[selectedStudent]}
-          payments={studentPayments}
-          cashierProfile={null} // No cashier profile for public portal
-          onSuccess={handlePaymentSuccess}
-          logActivity={async () => {}} // No activity logging for public portal
-          initialState={paymentDialogInitialState}
-        />
-      )}
     </div>
   );
 }

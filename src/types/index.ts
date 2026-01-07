@@ -45,6 +45,12 @@ export type FeeItem = {
 
 export type FeeStructure = { [studyingYear: string]: FeeItem[] };
 
+export type StudentListItem = {
+  id: string;
+  name: string;
+  roll_number: string;
+};
+
 export type StudentDetails = {
   id: string; name: string; roll_number: string; class: string; section: string; studying_year: string;
   caste: string | null;
@@ -88,6 +94,8 @@ export type TermFeeSummary = {
 
 export type FeeSummaryData = {
   [year: string]: {
-    [term: string]: TermFeeSummary;
+    [feeType: string]: {
+      [term: string]: TermFeeSummary;
+    };
   };
 };
