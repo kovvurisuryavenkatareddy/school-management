@@ -1,12 +1,12 @@
 "use client";
 
 import React from "react";
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { FeeSummaryTable } from "@/components/fee-collection/FeeSummaryTable";
 import { PaymentDialog } from "@/components/fee-collection/PaymentDialog";
 import { EditConcessionDialog } from "@/components/fee-collection/EditConcessionDialog";
-import { StudentDetails, Payment, CashierProfile, FIXED_TERMS, FeeSummaryData } from "@/types";
+import { StudentDetails, Payment, CashierProfile, FIXED_TERMS } from "@/types";
 import { generateReceiptHtml } from "@/lib/receipt-generator";
 import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
 
@@ -49,73 +49,28 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
     handlePrint(studentForReceipt, newPayment);
   };
 
-  const feeSummaryData: FeeSummaryData | null = useMemo(() => {
-    if (studentRecords.length === 0) return null;
-
-    const normalizedRecords = studentRecords.map(record => ({
-      ...record,
-      fee_details: normalizeFeeStructure(record.fee_details)
-    }));
-
-    const mergedFeeDetails = normalizedRecords.reduce<{[year: string]: any[]}>((acc, record) => {
-        if (record.fee_details) {
-            Object.entries(record.fee_details).forEach(([year, items]) => {
-              if (!acc[year]) acc[year] = [];
-              acc[year] = [...acc[year], ...items];
-            });
-        }
-        return acc;
-    }, {});
-
-    const summary: FeeSummaryData = {};
-
-    Object.keys(mergedFeeDetails).forEach(year => {
-        summary[year] = {};
-        FIXED_TERMS.forEach(t => {
-          summary[year][t.name] = { total: 0, paid: 0, concession: 0, balance: 0 };
-        });
-
-        const feeItems = mergedFeeDetails[year] || [];
-        feeItems.forEach(item => {
-            const termName = item.term_name;
-            if (summary[year][termName]) {
-                summary[year][termName].total += (item.amount || 0);
-                summary[year][termName].concession += (item.concession || 0);
-            }
-        });
-    });
-
-    payments.forEach(p => {
-        const parts = p.fee_type.split(' - ');
-        if (parts.length >= 2) {
-            const year = parts[0].trim();
-            const term = parts[1].trim();
-            if (summary[year]?.[term]) {
-                summary[year][term].paid += p.amount;
-            }
-        }
-    });
-
-    Object.keys(summary).forEach(year => {
-        Object.keys(summary[year]).forEach(term => {
-            const item = summary[year][term];
-            item.balance = Math.max(0, item.total - item.concession - item.paid);
-        });
-    });
-
-    return summary;
-  }, [studentRecords, payments]);
-
   const handlePayClick = (year: string, term: string) => {
-    if (!feeSummaryData || !feeSummaryData[year]?.[term]) return;
-    const termData = feeSummaryData[year][term];
+    // Re-calculate the specific context for the popup
+    const record = studentRecords.find(r => r.studying_year === year) || studentRecords[0];
+    if (!record) return;
+
+    const normalized = normalizeFeeStructure(record.fee_details);
+    const items = normalized[year] || [];
     
+    const termTotal = items
+        .filter(i => i.term_name === term)
+        .reduce((sum, i) => sum + (i.amount - i.concession), 0);
+    
+    const termPaid = payments
+        .filter(p => p.fee_type.startsWith(`${year} - ${term}`))
+        .reduce((sum, p) => sum + p.amount, 0);
+
     setPaymentContext({
       year,
       term,
-      total: termData.total - termData.concession,
-      paid: termData.paid,
-      balance: termData.balance
+      total: termTotal,
+      paid: termPaid,
+      balance: Math.max(0, termTotal - termPaid)
     });
     setPaymentDialogOpen(true);
   };
@@ -123,9 +78,10 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
   return (
     <>
       <FeeSummaryTable
-        data={feeSummaryData}
-        onPay={handlePayClick}
         student={studentRecords[0]}
+        payments={payments}
+        onPay={handlePayClick}
+        data={null} // Cleanup legacy prop
       />
       {paymentContext && (
         <PaymentDialog
