@@ -14,6 +14,7 @@ import {
   Package2,
   History,
   ClipboardList,
+  Table as TableIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -34,6 +35,7 @@ const allNavItems = [
   { href: "/class-management", icon: Library, label: "Class Management", roles: ['admin'] },
   { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['admin'] },
   { href: "/fee-collection", icon: Receipt, label: "Fee Collection", roles: ['admin', 'cashier'] },
+  { href: "/fee-register", icon: TableIcon, label: "Fee Register", roles: ['admin'] },
   { href: "/fee-paid-report", icon: ClipboardList, label: "Fee Paid Report", roles: ['admin', 'cashier'] },
 ];
 
