@@ -12,10 +12,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { StudentDetails, Payment, CashierProfile, FeeItem } from "@/types";
+import { StudentDetails, Payment, CashierProfile, FIXED_TERMS } from "@/types";
 import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
 
 const paymentSchema = z.object({
+  term_name: z.string().min(1, "Please select a term"),
   amount: z.coerce.number().min(0.01, "Amount must be greater than 0"),
   payment_method: z.enum(["cash", "upi"]),
   notes: z.string().optional(),
@@ -26,62 +27,79 @@ interface PaymentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   studentRecords: StudentDetails[];
+  payments: Payment[];
   cashierProfile: CashierProfile | null;
   onSuccess: (newPayment: Payment, studentRecord: StudentDetails) => void;
   logActivity: (action: string, details: object, studentId: string) => Promise<void>;
-  context: { 
-    year: string, 
-    term: string, 
-    total: number, 
-    paid: number, 
-    balance: number 
-  };
+  initialYear: string;
+  initialTerm: string;
 }
 
-export function PaymentDialog({ open, onOpenChange, studentRecords, cashierProfile, onSuccess, logActivity, context }: PaymentDialogProps) {
+export function PaymentDialog({ 
+  open, 
+  onOpenChange, 
+  studentRecords, 
+  payments, 
+  cashierProfile, 
+  onSuccess, 
+  logActivity, 
+  initialYear, 
+  initialTerm 
+}: PaymentDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const form = useForm<z.infer<typeof paymentSchema>>({
     resolver: zodResolver(paymentSchema),
-    defaultValues: { amount: context.balance, payment_method: "cash", notes: "", utr_number: "" },
+    defaultValues: { 
+      term_name: initialTerm,
+      amount: 0, 
+      payment_method: "cash", 
+      notes: "", 
+      utr_number: "" 
+    },
   });
   
+  const watchedTerm = form.watch("term_name");
   const watchedAmount = form.watch("amount");
   const watchedMethod = form.watch("payment_method");
 
-  // Derive the breakdown of fees for this specific term
-  const termBreakdown = useMemo(() => {
-    const record = studentRecords.find(r => r.studying_year === context.year) || studentRecords[0];
-    if (!record) return [];
+  // Calculate dynamic context based on selected term
+  const termContext = useMemo(() => {
+    const record = studentRecords.find(r => r.studying_year === initialYear) || studentRecords[0];
+    if (!record) return { total: 0, paid: 0, balance: 0, breakdown: [] };
     
     const normalized = normalizeFeeStructure(record.fee_details);
-    const items = normalized[context.year] || [];
-    return items.filter(item => item.term_name === context.term && item.amount > 0);
-  }, [studentRecords, context.year, context.term]);
+    const items = normalized[initialYear] || [];
+    const termItems = items.filter(item => item.term_name === watchedTerm && item.amount > 0);
+    
+    const total = termItems.reduce((sum, i) => sum + i.amount, 0);
+    const paid = payments
+        .filter(p => p.fee_type.startsWith(`${initialYear} - ${watchedTerm}`))
+        .reduce((sum, p) => sum + p.amount, 0);
 
-  const isAmountValid = watchedAmount > 0 && watchedAmount <= context.balance;
+    return {
+      total,
+      paid,
+      balance: Math.max(0, total - paid),
+      breakdown: termItems
+    };
+  }, [studentRecords, payments, initialYear, watchedTerm]);
 
   useEffect(() => {
     if (open) {
-      form.reset({
-        amount: parseFloat(context.balance.toFixed(2)),
-        payment_method: "cash",
-        notes: "",
-        utr_number: "",
-      });
+      form.setValue("term_name", initialTerm);
+      form.setValue("amount", parseFloat(termContext.balance.toFixed(2)));
     }
-  }, [open, context]);
+  }, [open, initialTerm, termContext.balance, form]);
+
+  const isAmountValid = watchedAmount > 0 && watchedAmount <= (termContext.balance + 0.01);
 
   const onSubmit = async (values: z.infer<typeof paymentSchema>) => {
-    if (!isAmountValid) {
-      toast.error("Invalid amount. Amount must be less than or equal to balance.");
-      return;
-    }
-
-    const studentRecord = studentRecords.find(r => r.studying_year === context.year) || studentRecords[0];
+    const studentRecord = studentRecords.find(r => r.studying_year === initialYear) || studentRecords[0];
     if (!studentRecord) return;
 
     setIsSubmitting(true);
-    const feeType = `${context.year} - ${context.term}`;
+    const feeType = `${initialYear} - ${values.term_name}`;
     
     const paymentData = {
         amount: values.amount,
@@ -97,7 +115,7 @@ export function PaymentDialog({ open, onOpenChange, studentRecords, cashierProfi
     if (error) {
       toast.error(`Payment failed: ${error.message}`);
     } else {
-      await logActivity("Term Fee Collection", { ...values, fee_type: feeType }, studentRecord.id);
+      await logActivity("Term Fee Collection", { ...values, fee_type: feeType, academic_year: initialYear }, studentRecord.id);
       onOpenChange(false);
       onSuccess(newPayment as Payment, studentRecord);
     }
@@ -107,64 +125,42 @@ export function PaymentDialog({ open, onOpenChange, studentRecords, cashierProfi
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>Term Payment Collection</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Collect Payment - {initialYear}</DialogTitle></DialogHeader>
         
-        <div className="space-y-4">
-          {/* Term Metadata */}
-          <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 p-3 text-sm border">
-            <div className="space-y-1">
-              <p className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">Term Name</p>
-              <p className="font-bold">{context.term} ({context.year})</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">Net Balance</p>
-              <p className="font-bold text-red-600">₹{context.balance.toFixed(2)}</p>
-            </div>
-          </div>
-
-          {/* Fee Breakdown Section */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">Fee Breakdown</p>
-            <div className="rounded-lg border bg-card text-card-foreground shadow-sm overflow-hidden">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/50 border-b">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium">Fee Type</th>
-                    <th className="px-3 py-2 text-right font-medium">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {termBreakdown.map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-3 py-2 text-muted-foreground">{item.name}</td>
-                      <td className="px-3 py-2 text-right font-medium">₹{item.amount.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                  {termBreakdown.length === 0 && (
-                    <tr>
-                      <td colSpan={2} className="px-3 py-4 text-center text-muted-foreground italic">No fee breakdown available.</td>
-                    </tr>
-                  )}
-                </tbody>
-                <tfoot className="bg-muted/20">
-                  <tr className="font-bold">
-                    <td className="px-3 py-2">Total Term Cost</td>
-                    <td className="px-3 py-2 text-right">₹{context.total.toFixed(2)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-        </div>
-
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-2">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            
+            <FormField control={form.control} name="term_name" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Select Term</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl><SelectTrigger><SelectValue placeholder="Select term" /></SelectTrigger></FormControl>
+                  <SelectContent>
+                    {FIXED_TERMS.map(t => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            {/* Term Summary Display */}
+            <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 p-3 text-sm border">
+              <div className="space-y-1">
+                <p className="text-muted-foreground text-xs uppercase font-semibold">Term Total</p>
+                <p className="font-bold">₹{termContext.total.toLocaleString()}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-muted-foreground text-xs uppercase font-semibold">Remaining Balance</p>
+                <p className="font-bold text-red-600">₹{termContext.balance.toLocaleString()}</p>
+              </div>
+            </div>
+
             <FormField control={form.control} name="amount" render={({ field }) => (
               <FormItem>
                 <FormLabel className="font-bold">Amount to Pay</FormLabel>
                 <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
-                {watchedAmount > context.balance && (
-                  <p className="text-[0.8rem] font-medium text-destructive">Amount exceeds remaining balance!</p>
+                {watchedAmount > termContext.balance && (
+                  <p className="text-[0.8rem] font-medium text-destructive">Warning: Amount exceeds balance.</p>
                 )}
                 <FormMessage />
               </FormItem>

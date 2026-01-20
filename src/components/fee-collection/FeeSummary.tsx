@@ -6,9 +6,8 @@ import { toast } from "sonner";
 import { FeeSummaryTable } from "@/components/fee-collection/FeeSummaryTable";
 import { PaymentDialog } from "@/components/fee-collection/PaymentDialog";
 import { EditConcessionDialog } from "@/components/fee-collection/EditConcessionDialog";
-import { StudentDetails, Payment, CashierProfile, FIXED_TERMS } from "@/types";
+import { StudentDetails, Payment, CashierProfile } from "@/types";
 import { generateReceiptHtml } from "@/lib/receipt-generator";
-import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
 
 interface FeeSummaryProps {
   studentRecords: StudentDetails[];
@@ -21,13 +20,7 @@ interface FeeSummaryProps {
 export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess, logActivity }: FeeSummaryProps) {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [editConcessionDialogOpen, setEditConcessionDialogOpen] = useState(false);
-  const [paymentContext, setPaymentContext] = useState<{ 
-    year: string, 
-    term: string, 
-    total: number, 
-    paid: number, 
-    balance: number 
-  } | null>(null);
+  const [initialContext, setInitialContext] = useState<{ year: string, term: string } | null>(null);
 
   const handlePrint = (student: StudentDetails, payment: Payment) => {
     const receiptHtml = generateReceiptHtml(student, payment, cashierProfile?.name || null);
@@ -50,28 +43,7 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
   };
 
   const handlePayClick = (year: string, term: string) => {
-    // Re-calculate the specific context for the popup
-    const record = studentRecords.find(r => r.studying_year === year) || studentRecords[0];
-    if (!record) return;
-
-    const normalized = normalizeFeeStructure(record.fee_details);
-    const items = normalized[year] || [];
-    
-    const termTotal = items
-        .filter(i => i.term_name === term)
-        .reduce((sum, i) => sum + (i.amount - i.concession), 0);
-    
-    const termPaid = payments
-        .filter(p => p.fee_type.startsWith(`${year} - ${term}`))
-        .reduce((sum, p) => sum + p.amount, 0);
-
-    setPaymentContext({
-      year,
-      term,
-      total: termTotal,
-      paid: termPaid,
-      balance: Math.max(0, termTotal - termPaid)
-    });
+    setInitialContext({ year, term });
     setPaymentDialogOpen(true);
   };
 
@@ -81,17 +53,18 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
         student={studentRecords[0]}
         payments={payments}
         onPay={handlePayClick}
-        data={null} // Cleanup legacy prop
       />
-      {paymentContext && (
+      {initialContext && (
         <PaymentDialog
           open={paymentDialogOpen}
           onOpenChange={setPaymentDialogOpen}
           studentRecords={studentRecords}
+          payments={payments}
           cashierProfile={cashierProfile}
           onSuccess={handlePaymentSuccess}
           logActivity={logActivity}
-          context={paymentContext}
+          initialYear={initialContext.year}
+          initialTerm={initialContext.term}
         />
       )}
       <EditConcessionDialog
