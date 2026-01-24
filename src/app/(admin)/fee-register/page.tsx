@@ -28,8 +28,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, Download, FileSpreadsheet } from "lucide-react";
-import { FIXED_TERMS, AcademicYear, ClassGroup, StudentDetails } from "@/types";
+import { Loader2, Search, FileSpreadsheet } from "lucide-react";
+import { FIXED_TERMS, AcademicYear, ClassGroup } from "@/types";
 import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
 import Papa from "papaparse";
 
@@ -38,9 +38,9 @@ export default function FeeRegisterPage() {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   
   // Filter States
-  const [selectedYear, setSelectedYear] = useState<string>("");
-  const [selectedClass, setSelectedClass] = useState<string>("");
-  const [selectedTerm, setSelectedTerm] = useState<string>(FIXED_TERMS[0].name);
+  const [selectedYear, setSelectedYear] = useState<string>("all");
+  const [selectedClass, setSelectedClass] = useState<string>("all");
+  const [selectedTerm, setSelectedTerm] = useState<string>("all");
   
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -55,12 +55,9 @@ export default function FeeRegisterPage() {
       
       if (ayRes.data) {
         setAcademicYears(ayRes.data);
-        const active = ayRes.data.find(y => y.is_active);
-        if (active) setSelectedYear(active.id);
       }
       if (classRes.data) {
         setClasses(classRes.data);
-        if (classRes.data.length > 0) setSelectedClass(classRes.data[0].name);
       }
       setIsInitialLoad(false);
     };
@@ -68,19 +65,20 @@ export default function FeeRegisterPage() {
   }, []);
 
   const handleShowRegister = async () => {
-    if (!selectedYear || !selectedClass || !selectedTerm) {
-      toast.error("Please select all filters first.");
-      return;
-    }
-
     setIsLoading(true);
     try {
-      // 1. Fetch all students for the selected cohort
-      const { data: students, error: studentError } = await supabase
+      let studentQuery = supabase
         .from('students')
-        .select('*, student_types(name)')
-        .eq('academic_year_id', selectedYear)
-        .eq('class', selectedClass);
+        .select('*, student_types(name)');
+
+      if (selectedYear !== "all") {
+        studentQuery = studentQuery.eq('academic_year_id', selectedYear);
+      }
+      if (selectedClass !== "all") {
+        studentQuery = studentQuery.eq('class', selectedClass);
+      }
+
+      const { data: students, error: studentError } = await studentQuery;
 
       if (studentError) throw studentError;
 
@@ -91,37 +89,44 @@ export default function FeeRegisterPage() {
         return;
       }
 
-      // 2. Fetch all payments for these students for the selected term
       const studentIds = students.map(s => s.id);
-      const { data: payments, error: paymentError } = await supabase
+      let paymentQuery = supabase
         .from('payments')
         .select('*')
-        .in('student_id', studentIds)
-        .ilike('fee_type', `%${selectedTerm}%`);
+        .in('student_id', studentIds);
 
+      if (selectedTerm !== "all") {
+        paymentQuery = paymentQuery.ilike('fee_type', `%${selectedTerm}%`);
+      }
+
+      const { data: payments, error: paymentError } = await paymentQuery;
       if (paymentError) throw paymentError;
 
-      // 3. Process status for each student
       const processed = students.map(student => {
         const normalizedFee = normalizeFeeStructure(student.fee_details);
         const yearKey = student.studying_year;
         const feeItems = normalizedFee[yearKey] || [];
         
-        // Expected amount for this specific term
-        const termItem = feeItems.find(i => i.term_name === selectedTerm);
-        const expectedAmount = termItem?.amount || 0;
+        let expectedAmount = 0;
+        let totalPaid = 0;
 
-        // If expected is 0, it's considered "Paid/Exempt"
-        if (expectedAmount === 0) {
-          return { ...student, status: 'Paid', paid: 0, expected: 0 };
+        if (selectedTerm === "all") {
+          expectedAmount = feeItems
+            .filter(i => i.name.startsWith('Term'))
+            .reduce((sum, i) => sum + i.amount, 0);
+          
+          totalPaid = (payments || [])
+            .filter(p => p.student_id === student.id && p.fee_type.startsWith(yearKey))
+            .reduce((sum, p) => sum + p.amount, 0);
+        } else {
+          const termItem = feeItems.find(i => i.term_name === selectedTerm);
+          expectedAmount = termItem?.amount || 0;
+          totalPaid = (payments || [])
+            .filter(p => p.student_id === student.id && p.fee_type.includes(`${yearKey} - ${selectedTerm}`))
+            .reduce((sum, p) => sum + p.amount, 0);
         }
 
-        // Total paid for this term (matching Year and Term)
-        const totalPaid = (payments || [])
-          .filter(p => p.student_id === student.id && p.fee_type.startsWith(yearKey))
-          .reduce((sum, p) => sum + p.amount, 0);
-
-        const isPaid = totalPaid >= expectedAmount;
+        const isPaid = expectedAmount === 0 || totalPaid >= expectedAmount;
 
         return {
           ...student,
@@ -146,7 +151,7 @@ export default function FeeRegisterPage() {
       "Class": s.class,
       "Section": s.section,
       "Year": s.studying_year,
-      "Term": selectedTerm,
+      "Term": selectedTerm === "all" ? "All Terms" : selectedTerm,
       "Expected Amount": s.expected,
       "Paid Amount": s.paid,
       "Status": s.status
@@ -174,15 +179,16 @@ export default function FeeRegisterPage() {
       <Card className="border-primary/10 shadow-sm">
         <CardHeader className="pb-4">
           <CardTitle>Fee Tracking Register</CardTitle>
-          <CardDescription>Generate granular term-wise collection reports for specific cohorts.</CardDescription>
+          <CardDescription>Generate term-wise collection reports with multi-cohort filtering.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div className="space-y-2">
               <Label>Academic Year</Label>
               <Select value={selectedYear} onValueChange={setSelectedYear}>
-                <SelectTrigger><SelectValue placeholder="Select Year" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="All Years" /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">All Years</SelectItem>
                   {academicYears.map(ay => <SelectItem key={ay.id} value={ay.id}>{ay.year_name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -191,8 +197,9 @@ export default function FeeRegisterPage() {
             <div className="space-y-2">
               <Label>Class / Degree</Label>
               <Select value={selectedClass} onValueChange={setSelectedClass}>
-                <SelectTrigger><SelectValue placeholder="Select Class" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="All Classes" /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">All Classes</SelectItem>
                   {classes.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -201,8 +208,9 @@ export default function FeeRegisterPage() {
             <div className="space-y-2">
               <Label>Academic Term</Label>
               <Select value={selectedTerm} onValueChange={setSelectedTerm}>
-                <SelectTrigger><SelectValue placeholder="Select Term" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="All Terms" /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">All Terms</SelectItem>
                   {FIXED_TERMS.map(t => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -220,8 +228,10 @@ export default function FeeRegisterPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20">
             <div>
-              <CardTitle className="text-lg">Collection Register: {selectedClass} - {selectedTerm}</CardTitle>
-              <CardDescription>Real-time status tracking based on current collection data.</CardDescription>
+              <CardTitle className="text-lg">Collection Register</CardTitle>
+              <CardDescription>
+                {selectedClass === "all" ? "All Classes" : selectedClass} | {selectedTerm === "all" ? "All Terms" : selectedTerm}
+              </CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={downloadCSV} className="gap-2">
               <FileSpreadsheet className="h-4 w-4" />

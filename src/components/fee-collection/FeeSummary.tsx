@@ -53,6 +53,8 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
         student={studentRecords[0]}
         payments={payments}
         onPay={handlePayClick}
+        onEditConcession={() => setEditConcessionDialogOpen(true)}
+        cashierProfile={cashierProfile}
       />
       {initialContext && (
         <PaymentDialog
@@ -73,6 +75,7 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
         studentRecords={studentRecords}
         onSuccess={onSuccess}
         logActivity={logActivity}
+        cashierProfile={cashierProfile}
       />
     </>
   );

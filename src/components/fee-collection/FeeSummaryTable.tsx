@@ -11,19 +11,21 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { StudentDetails, Payment } from "@/types";
+import { StudentDetails, Payment, CashierProfile } from "@/types";
 import { cn } from "@/lib/utils";
 import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
+import { Settings2 } from "lucide-react";
 
 interface FeeSummaryTableProps {
   onPay: (year: string, term: string) => void;
+  onEditConcession: () => void;
   isReadOnly?: boolean;
   student: StudentDetails | null;
   payments?: Payment[]; 
-  data?: any; 
+  cashierProfile?: CashierProfile | null;
 }
 
-export function FeeSummaryTable({ student, payments = [], onPay, isReadOnly = false }: FeeSummaryTableProps) {
+export function FeeSummaryTable({ student, payments = [], onPay, onEditConcession, isReadOnly = false, cashierProfile }: FeeSummaryTableProps) {
   if (!student) return null;
 
   const normalizedFeeDetails = useMemo(() => normalizeFeeStructure(student.fee_details), [student.fee_details]);
@@ -53,19 +55,29 @@ export function FeeSummaryTable({ student, payments = [], onPay, isReadOnly = fa
     });
   }, [normalizedFeeDetails, payments, years]);
 
-  // Define the rows we want to show based on the user's requirement
   const feeRows = [
-    { label: "Term - 1 tution fee", termKey: "Term 1" },
-    { label: "Term - 2 tution fee", termKey: "Term 2" },
+    { label: "Term - 1 tuition fee", termKey: "Term 1" },
+    { label: "Term - 2 tuition fee", termKey: "Term 2" },
     { label: "Term - 3 jvd fee", termKey: "Term 3" },
     { label: "concession fee", isConcession: true },
   ];
 
+  // Only show concession button if it's an admin or a cashier with Discount Permission
+  const canEditDiscount = !cashierProfile || cashierProfile.has_discount_permission;
+
   return (
     <Card className="overflow-hidden border-primary/10 shadow-lg">
-      <CardHeader className="bg-muted/30 border-b py-6">
-        <CardTitle className="text-xl font-ubuntu text-primary">Student Fee Summary</CardTitle>
-        <CardDescription className="text-sm">Year-wise breakdown of tuition and JVD fees.</CardDescription>
+      <CardHeader className="bg-muted/30 border-b py-4 flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-lg font-ubuntu text-primary">Student Fee Summary</CardTitle>
+          <CardDescription className="text-xs">Year-wise breakdown of tuition and JVD fees.</CardDescription>
+        </div>
+        {!isReadOnly && canEditDiscount && (
+          <Button variant="outline" size="sm" onClick={onEditConcession} className="gap-2 h-8 text-xs">
+            <Settings2 className="h-3.5 w-3.5" />
+            Edit Yearly Concession
+          </Button>
+        )}
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
@@ -111,16 +123,13 @@ export function FeeSummaryTable({ student, payments = [], onPay, isReadOnly = fa
                 </TableRow>
               ))}
 
-              {/* Action Row */}
               {!isReadOnly && (
                 <TableRow className="bg-muted/10">
                   <TableCell className="pl-6 font-black text-xs uppercase tracking-tighter text-primary">
                     Action
                   </TableCell>
                   {tableData.map((yearData) => {
-                    // Find the first term with a balance to pay
                     const firstUnpaidTerm = yearData.metrics.find(m => m.balance > 0);
-                    
                     return (
                       <TableCell key={yearData.year} className="text-center">
                         <Button 

@@ -8,7 +8,7 @@ import * as z from "zod";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,7 +16,7 @@ import { Invoice, StudentDetails, CashierProfile, Payment, FIXED_TERMS } from "@
 
 const invoicePaymentSchema = z.object({
   payment_year: z.string().min(1, "Please select a year"),
-  term_name: z.string().min(1, "Please select a term."), // New field
+  term_name: z.string().min(1, "Please select a term."),
   amount: z.coerce.number().min(0.01, "Amount must be greater than 0"),
   payment_method: z.enum(["cash", "upi"]),
   notes: z.string().optional(),
@@ -52,27 +52,25 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
   const currentYearRecord = studentRecords.find(r => r.academic_years?.is_active);
 
   useEffect(() => {
-    if (invoice) {
+    if (invoice && open) {
       const remainingBalance = invoice.total_amount - (invoice.paid_amount || 0);
       
-      // Attempt to extract term from batch_description
       const batchDescParts = invoice.batch_description.split(' for Class ')[0].split(' - ');
       let extractedTerm = '';
       if (batchDescParts.length > 1) {
-        // Find if any FIXED_TERMS name is present in the batch description parts
         extractedTerm = FIXED_TERMS.find(term => batchDescParts.includes(term.name))?.name || '';
       }
 
       form.reset({
-        payment_year: currentYearRecord?.studying_year || '',
-        term_name: extractedTerm || FIXED_TERMS[0].name, // Default to first term if not found
+        payment_year: currentYearRecord?.studying_year || Object.keys(masterFeeDetails)[0] || '',
+        term_name: extractedTerm || FIXED_TERMS[0].name,
         amount: parseFloat(remainingBalance.toFixed(2)),
         payment_method: "cash",
         notes: "",
         utr_number: "",
       });
     }
-  }, [invoice, currentYearRecord, form]);
+  }, [invoice, currentYearRecord, form, open, masterFeeDetails]);
 
   const onSubmit = async (values: z.infer<typeof invoicePaymentSchema>) => {
     const studentRecordForPayment = studentRecords[0];
@@ -82,7 +80,7 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
     }
     setIsSubmitting(true);
 
-    const feeName = invoice.batch_description.split(" for Class ")[0]; // This might still contain term, need to refine
+    const feeName = invoice.batch_description.split(" for Class ")[0];
     const feeTypeForDb = `${values.payment_year} - ${values.term_name} - ${feeName}`;
 
     const paymentData = {
@@ -125,39 +123,43 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>Collect Invoice Payment</DialogTitle></DialogHeader>
-        <div className="space-y-2 text-sm">
+        <div className="space-y-2 text-sm bg-muted/30 p-3 rounded-md">
           <p><strong>Description:</strong> {invoice?.batch_description}</p>
-          <p><strong>Total Amount:</strong> {invoice?.total_amount.toFixed(2)}</p>
-          <p><strong>Remaining Balance:</strong> {((invoice?.total_amount || 0) - (invoice?.paid_amount || 0)).toFixed(2)}</p>
+          <p><strong>Total Amount:</strong> ₹{invoice?.total_amount.toFixed(2)}</p>
+          <p><strong>Remaining Balance:</strong> ₹{((invoice?.total_amount || 0) - (invoice?.paid_amount || 0)).toFixed(2)}</p>
         </div>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField control={form.control} name="payment_year" render={({ field }) => (
-              <FormItem><FormLabel>Academic Year</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl><SelectTrigger><SelectValue placeholder="Select year..." /></SelectTrigger></FormControl>
-                  <SelectContent>
-                    {Object.keys(masterFeeDetails).map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              <FormMessage /></FormItem>
-            )} />
-            <FormField control={form.control} name="term_name" render={({ field }) => (
-              <FormItem><FormLabel>Term</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl><SelectTrigger><SelectValue placeholder="Select term..." /></SelectTrigger></FormControl>
-                  <SelectContent>
-                    {FIXED_TERMS.map(term => <SelectItem key={term.id} value={term.name}>{term.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              <FormMessage /></FormItem>
-            )} />
+            <div className="grid grid-cols-2 gap-4">
+              <FormField control={form.control} name="payment_year" render={({ field }) => (
+                <FormItem><FormLabel>Year Attribution</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl><SelectTrigger><SelectValue placeholder="Year..." /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      {Object.keys(masterFeeDetails).map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                <FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="term_name" render={({ field }) => (
+                <FormItem><FormLabel>Term Attribution</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl><SelectTrigger><SelectValue placeholder="Term..." /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      {FIXED_TERMS.map(term => <SelectItem key={term.id} value={term.name}>{term.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                <FormMessage /></FormItem>
+              )} />
+            </div>
+            <FormDescription className="text-[10px] mt-0">Payments will also debit balances from the year/term selected above.</FormDescription>
+
             <FormField control={form.control} name="amount" render={({ field }) => (
               <FormItem><FormLabel>Amount to Collect</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
             <FormField control={form.control} name="payment_method" render={({ field }) => (
               <FormItem><FormLabel>Payment Method</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                   <SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="upi">UPI</SelectItem></SelectContent>
                 </Select>
