@@ -28,8 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 });
-const yAxisFormatter = (value: number) => `₹ ${value}`;
-const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+const yAxisFormatter = (value: number) => \`₹ \${value}\`;
 
 type Stats = {
   paidInvoices: number;
@@ -45,8 +44,6 @@ type BreakdownData = { name: string; value: number }[];
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [barChartData, setBarChartData] = useState<any[]>([]);
-  const [incomeBreakdown, setIncomeBreakdown] = useState<BreakdownData>([]);
-  const [expenseBreakdown, setExpenseBreakdown] = useState<BreakdownData>([]);
   const [academicYears, setAcademicYears] = useState<{ year_name: string }[]>([]);
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
   const [isLoading, setIsLoading] = useState(true);
@@ -60,16 +57,12 @@ export default function Dashboard() {
         invoiceRes,
         collectionRes,
         expensesRes,
-        incomeBreakdownRes,
-        expenseBreakdownRes,
         yearsRes,
         studentsRes,
       ] = await Promise.all([
         supabase.from("invoices").select("status", { count: "exact" }),
         supabase.from("payments").select("amount").gte("created_at", currentMonthStart),
         supabase.from("expenses").select("amount").gte("expense_date", currentMonthStart),
-        supabase.from("payments").select("fee_type, amount"),
-        supabase.from("expenses").select("amount, departments(name)"),
         supabase.from("academic_years").select("year_name").order("year_name", { ascending: false }),
         supabase.from("students").select("*", { count: "exact", head: true }),
       ]);
@@ -87,20 +80,6 @@ export default function Dashboard() {
         monthlyExpenses,
         totalStudents: studentsRes.count || 0,
       });
-
-      const incomeMap = new Map<string, number>();
-      incomeBreakdownRes.data?.forEach(p => {
-        const type = p.fee_type.includes("Tuition") ? "Tuition Fee" : "Other Fees";
-        incomeMap.set(type, (incomeMap.get(type) || 0) + p.amount);
-      });
-      setIncomeBreakdown(Array.from(incomeMap, ([name, value]) => ({ name, value })));
-
-      const expenseMap = new Map<string, number>();
-      expenseBreakdownRes.data?.forEach((e: any) => {
-        const dept = e.departments?.name || "Uncategorized";
-        expenseMap.set(dept, (expenseMap.get(dept) || 0) + e.amount);
-      });
-      setExpenseBreakdown(Array.from(expenseMap, ([name, value]) => ({ name, value })));
 
       if (yearsRes.data) {
         const yearSet = new Set(yearsRes.data.map(y => y.year_name.substring(0, 4)));
@@ -127,20 +106,36 @@ export default function Dashboard() {
         supabase.rpc('get_monthly_expenses', { year_in: year }),
       ]);
 
-      const monthData = Array.from({ length: 12 }, (_, i) => ({
-        month: new Date(0, i).toLocaleString('default', { month: 'short' }),
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const monthData = monthNames.map(name => ({
+        month: name,
         income: 0,
         expenses: 0,
       }));
 
-      paymentsRes.data?.forEach((p: any) => {
-        const monthIndex = new Date(p.month).getMonth();
-        monthData[monthIndex].income = p.total;
-      });
-      expensesRes.data?.forEach((e: any) => {
-        const monthIndex = new Date(e.month).getMonth();
-        monthData[monthIndex].expenses = e.total;
-      });
+      // Map payments to chart data
+      if (paymentsRes.data) {
+        paymentsRes.data.forEach((p: any) => {
+          // p.month is 'YYYY-MM-DD'
+          const date = new Date(p.month);
+          const monthIndex = date.getUTCMonth();
+          if (monthIndex >= 0 && monthIndex < 12) {
+            monthData[monthIndex].income = p.total;
+          }
+        });
+      }
+
+      // Map expenses to chart data
+      if (expensesRes.data) {
+        expensesRes.data.forEach((e: any) => {
+          // e.month is 'YYYY-MM-DD'
+          const date = new Date(e.month);
+          const monthIndex = date.getUTCMonth();
+          if (monthIndex >= 0 && monthIndex < 12) {
+            monthData[monthIndex].expenses = e.total;
+          }
+        });
+      }
 
       setBarChartData(monthData);
     };

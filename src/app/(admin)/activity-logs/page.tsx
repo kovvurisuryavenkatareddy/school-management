@@ -20,6 +20,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { DataTablePagination } from "@/components/data-table-pagination";
+import { Button } from "@/components/ui/button";
+import { ExternalLink } from "lucide-react";
 
 type ActivityLog = {
   id: string;
@@ -70,7 +72,18 @@ export default function ActivityLogsPage() {
       case 'Fee Collection':
         return `Amount: ${log.details.amount}, Type: ${log.details.fee_type || 'N/A'}`;
       case 'Concession Applied':
-        return `Amount: ${log.details.amount}, Reason: ${log.details.notes || 'N/A'}`;
+        return (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs">Amount: ₹{log.details.amount.toLocaleString()}</span>
+            {log.details.document_url && (
+              <Button variant="link" size="sm" className="h-auto p-0 justify-start text-xs font-bold" asChild>
+                <a href={log.details.document_url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="mr-1 h-3 w-3" /> View Permission Letter
+                </a>
+              </Button>
+            )}
+          </div>
+        );
       case 'Invoice Payment':
         return `Amount: ${log.details.amount}, Desc: ${log.details.description || 'N/A'}`;
       case 'Bulk Payment Import':
@@ -109,7 +122,7 @@ export default function ActivityLogsPage() {
             ) : logs.length > 0 ? (
               logs.map((log) => (
                 <TableRow key={log.id}>
-                  <TableCell>{new Date(log.timestamp).toLocaleString()}</TableCell>
+                  <TableCell className="text-xs">{new Date(log.timestamp).toLocaleString()}</TableCell>
                   <TableCell>
                     {log.cashiers ? (
                       <span className="font-medium">{log.cashiers.name}</span>
@@ -117,9 +130,9 @@ export default function ActivityLogsPage() {
                       <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">Admin</Badge>
                     )}
                   </TableCell>
-                  <TableCell><Badge variant="secondary">{log.action}</Badge></TableCell>
-                  <TableCell>{log.students ? `${log.students.name} (${log.students.roll_number})` : 'N/A'}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
+                  <TableCell><Badge variant="secondary" className="text-[10px]">{log.action}</Badge></TableCell>
+                  <TableCell className="text-xs">{log.students ? `${log.students.name} (${log.students.roll_number})` : 'N/A'}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
                     {renderDetails(log)}
                   </TableCell>
                 </TableRow>
