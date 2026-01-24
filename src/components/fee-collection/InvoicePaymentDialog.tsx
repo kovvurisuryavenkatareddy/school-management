@@ -8,15 +8,13 @@ import * as z from "zod";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Invoice, StudentDetails, CashierProfile, Payment, FIXED_TERMS } from "@/types";
+import { Invoice, StudentDetails, CashierProfile, Payment } from "@/types";
 
 const invoicePaymentSchema = z.object({
-  payment_year: z.string().min(1, "Please select a year"),
-  term_name: z.string().min(1, "Please select a term."),
   amount: z.coerce.number().min(0.01, "Amount must be greater than 0"),
   payment_method: z.enum(["cash", "upi"]),
   notes: z.string().optional(),
@@ -48,29 +46,18 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
   });
 
   const watchedPaymentMethod = form.watch("payment_method");
-  const masterFeeDetails = studentRecords.length > 0 ? studentRecords[studentRecords.length - 1].fee_details || {} : {};
-  const currentYearRecord = studentRecords.find(r => r.academic_years?.is_active);
 
   useEffect(() => {
     if (invoice && open) {
       const remainingBalance = invoice.total_amount - (invoice.paid_amount || 0);
-      
-      const batchDescParts = invoice.batch_description.split(' for Class ')[0].split(' - ');
-      let extractedTerm = '';
-      if (batchDescParts.length > 1) {
-        extractedTerm = FIXED_TERMS.find(term => batchDescParts.includes(term.name))?.name || '';
-      }
-
       form.reset({
-        payment_year: currentYearRecord?.studying_year || Object.keys(masterFeeDetails)[0] || '',
-        term_name: extractedTerm || FIXED_TERMS[0].name,
         amount: parseFloat(remainingBalance.toFixed(2)),
         payment_method: "cash",
         notes: "",
         utr_number: "",
       });
     }
-  }, [invoice, currentYearRecord, form, open, masterFeeDetails]);
+  }, [invoice, open, form]);
 
   const onSubmit = async (values: z.infer<typeof invoicePaymentSchema>) => {
     const studentRecordForPayment = studentRecords[0];
@@ -80,15 +67,15 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
     }
     setIsSubmitting(true);
 
-    const feeName = invoice.batch_description.split(" for Class ")[0];
-    const feeTypeForDb = `${values.payment_year} - ${values.term_name} - ${feeName}`;
+    // fee_type for invoices is just the descriptive label, it won't affect the summary table logic
+    const feeTypeLabel = `Invoice: ${invoice.batch_description}`;
 
     const paymentData = {
       student_id: studentRecordForPayment.id,
       cashier_id: cashierProfile?.id || null,
       amount: values.amount,
       payment_method: values.payment_method,
-      fee_type: feeTypeForDb,
+      fee_type: feeTypeLabel,
       notes: values.notes,
       utr_number: values.payment_method === 'upi' ? values.utr_number : null,
     };
@@ -111,7 +98,11 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
     if (invoiceError) {
       toast.error(`Payment recorded, but failed to update invoice status: ${invoiceError.message}`);
     } else {
-      await logActivity("Invoice Payment", { description: invoice.batch_description, amount: values.amount }, studentRecordForPayment.id);
+      await logActivity("Invoice Payment", { 
+        description: invoice.batch_description, 
+        amount: values.amount,
+        invoice_id: invoice.id 
+      }, studentRecordForPayment.id);
     }
 
     onOpenChange(false);
@@ -121,59 +112,42 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Collect Invoice Payment</DialogTitle></DialogHeader>
-        <div className="space-y-2 text-sm bg-muted/30 p-3 rounded-md">
+        <div className="space-y-2 text-sm bg-muted/30 p-4 rounded-lg border">
           <p><strong>Description:</strong> {invoice?.batch_description}</p>
-          <p><strong>Total Amount:</strong> ₹{invoice?.total_amount.toFixed(2)}</p>
-          <p><strong>Remaining Balance:</strong> ₹{((invoice?.total_amount || 0) - (invoice?.paid_amount || 0)).toFixed(2)}</p>
+          <div className="flex justify-between border-t pt-2 mt-2">
+            <span>Total Due: ₹{invoice?.total_amount.toLocaleString()}</span>
+            <span className="font-bold text-primary">Balance: ₹{((invoice?.total_amount || 0) - (invoice?.paid_amount || 0)).toLocaleString()}</span>
+          </div>
         </div>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <FormField control={form.control} name="payment_year" render={({ field }) => (
-                <FormItem><FormLabel>Year Attribution</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Year..." /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {Object.keys(masterFeeDetails).map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                <FormMessage /></FormItem>
-              )} />
-              <FormField control={form.control} name="term_name" render={({ field }) => (
-                <FormItem><FormLabel>Term Attribution</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Term..." /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {FIXED_TERMS.map(term => <SelectItem key={term.id} value={term.name}>{term.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                <FormMessage /></FormItem>
-              )} />
-            </div>
-            <FormDescription className="text-[10px] mt-0">Payments will also debit balances from the year/term selected above.</FormDescription>
-
             <FormField control={form.control} name="amount" render={({ field }) => (
-              <FormItem><FormLabel>Amount to Collect</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
+              <FormItem><FormLabel className="font-bold">Amount to Collect</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
-            <FormField control={form.control} name="payment_method" render={({ field }) => (
-              <FormItem><FormLabel>Payment Method</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                  <SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="upi">UPI</SelectItem></SelectContent>
-                </Select>
-              <FormMessage /></FormItem>
-            )} />
-            {watchedPaymentMethod === 'upi' && (
-              <FormField control={form.control} name="utr_number" render={({ field }) => (
-                <FormItem><FormLabel>UTR Number</FormLabel><FormControl><Input placeholder="Enter UTR number" {...field} /></FormControl><FormMessage /></FormItem>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <FormField control={form.control} name="payment_method" render={({ field }) => (
+                <FormItem><FormLabel>Method</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="upi">UPI</SelectItem></SelectContent>
+                  </Select>
+                <FormMessage /></FormItem>
               )} />
-            )}
+              {watchedPaymentMethod === 'upi' && (
+                <FormField control={form.control} name="utr_number" render={({ field }) => (
+                  <FormItem><FormLabel>UTR Number</FormLabel><FormControl><Input placeholder="Enter UTR #" {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+              )}
+            </div>
+
             <FormField control={form.control} name="notes" render={({ field }) => (
-              <FormItem><FormLabel>Notes (Optional)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              <FormItem><FormLabel>Notes (Optional)</FormLabel><FormControl><Input placeholder="Receipt notes..." {...field} /></FormControl><FormMessage /></FormItem>
             )} />
-            <DialogFooter>
+
+            <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Processing..." : "Confirm Payment"}</Button>
             </DialogFooter>
