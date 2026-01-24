@@ -15,7 +15,7 @@ import {
   Settings,
   History,
   PanelRight,
-  ClipboardList,
+  Coins,
 } from "lucide-react";
 import {
   Sheet,
@@ -54,9 +54,8 @@ const allNavItems = [
     { href: "/departments", icon: Building, label: "Departments", roles: ['admin'] },
     { href: "/expenses", icon: TrendingUp, label: "Expenses", roles: ['admin', 'cashier'] },
     { href: "/class-management", icon: Library, label: "Class Management", roles: ['admin'] },
+    { href: "/financials", icon: Coins, label: "Financials", roles: ['admin', 'cashier'] },
     { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['admin'] },
-    { href: "/fee-collection", icon: Receipt, label: "Fee Collection", roles: ['admin', 'cashier'] },
-    { href: "/fee-paid-report", icon: ClipboardList, label: "Fee Paid Report", roles: ['admin', 'cashier'] },
     { href: "/settings", icon: Settings, label: "Settings", roles: ['admin'] },
 ];
 
@@ -75,7 +74,7 @@ export function Header({ userName, userRole, isSidebarExpanded, onToggleSidebar,
   const pageItem = allNavItems.find(item => pathname.startsWith(item.href));
   const pageTitle = pageItem?.label || "Portal";
   const portalTitle = userRole === 'admin' ? 'Admin Portal' : 'Cashier Portal';
-  const homeLink = userRole === 'admin' ? '/dashboard' : '/fee-collection';
+  const homeLink = userRole === 'admin' ? '/dashboard' : '/financials';
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();

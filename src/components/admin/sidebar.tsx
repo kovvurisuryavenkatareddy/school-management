@@ -13,8 +13,7 @@ import {
   Library,
   Package2,
   History,
-  ClipboardList,
-  Table as TableIcon,
+  Coins,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -33,10 +32,8 @@ const allNavItems = [
   { href: "/departments", icon: Building, label: "Departments", roles: ['admin'] },
   { href: "/expenses", icon: TrendingUp, label: "Expenses", roles: ['admin', 'cashier'] },
   { href: "/class-management", icon: Library, label: "Class Management", roles: ['admin'] },
+  { href: "/financials", icon: Coins, label: "Financials", roles: ['admin', 'cashier'] },
   { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['admin'] },
-  { href: "/fee-collection", icon: Receipt, label: "Fee Collection", roles: ['admin', 'cashier'] },
-  { href: "/fee-register", icon: TableIcon, label: "Fee Register", roles: ['admin'] },
-  { href: "/fee-paid-report", icon: ClipboardList, label: "Fee Paid Report", roles: ['admin', 'cashier'] },
 ];
 
 export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'admin' | 'cashier', isExpanded: boolean, cashierProfile: any }) {
@@ -51,7 +48,7 @@ export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'a
   });
 
   const portalTitle = userRole === 'admin' ? 'Admin Portal' : 'Cashier Portal';
-  const homeLink = userRole === 'admin' ? '/dashboard' : '/fee-collection';
+  const homeLink = userRole === 'admin' ? '/dashboard' : '/financials';
 
   return (
     <aside className={cn(
