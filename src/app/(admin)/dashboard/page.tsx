@@ -28,7 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 });
-const yAxisFormatter = (value: number) => \`₹ \${value}\`;
+const yAxisFormatter = (value: number) => `₹ ${value}`;
 
 type Stats = {
   paidInvoices: number;
