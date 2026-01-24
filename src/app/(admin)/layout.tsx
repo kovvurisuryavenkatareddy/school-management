@@ -79,7 +79,7 @@ export default function AdminLayout({
 
       if (userRole === 'cashier') {
         if (pathname.startsWith('/expenses') && !cashierProfile?.has_expenses_permission) {
-          router.push('/fee-collection');
+          router.push('/financials');
           return;
         }
       }
@@ -88,7 +88,7 @@ export default function AdminLayout({
       const currentPageIsCashierOnly = cashierOnlyPages.some(p => pathname.startsWith(p));
 
       if (userRole === 'cashier' && currentPageIsAdminOnly) {
-        router.push('/fee-collection');
+        router.push('/financials');
       } else if (userRole === 'admin' && currentPageIsCashierOnly) {
         router.push('/dashboard');
       }
@@ -110,7 +110,7 @@ export default function AdminLayout({
       <Sidebar userRole={userRole} isExpanded={isSidebarExpanded} cashierProfile={cashierProfile} />
       <div className={cn(
         "flex flex-col min-h-screen transition-all duration-300 print:p-0",
-        isSidebarExpanded ? "sm:pl-56 print:!pl-0" : "sm:pl-14 print:!pl-0"
+        isExpanded ? "sm:pl-56 print:!pl-0" : "sm:pl-14 print:!pl-0"
       )}>
         <Header userName={userName} userRole={userRole} isSidebarExpanded={isSidebarExpanded} onToggleSidebar={() => setIsSidebarExpanded(prev => !prev)} cashierProfile={cashierProfile} />
         <main className="flex-1 grid items-start gap-4 p-4 sm:px-6 sm:py-4 md:gap-8">
