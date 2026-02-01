@@ -60,6 +60,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
 import { DataTablePagination } from "@/components/data-table-pagination";
 
@@ -99,9 +100,10 @@ export default function CashiersPage() {
   const [editingCashier, setEditingCashier] = useState<Cashier | null>(null);
   const [cashierForPassword, setCashierForPassword] = useState<Cashier | null>(null);
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
-  const [cashierToDelete, setCashierToDelete] = useState<Cashier | null>(null);
+  const [itemsToDelete, setItemsToDelete] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -140,15 +142,11 @@ export default function CashiersPage() {
     setIsSubmitting(true);
     
     if (editingCashier) {
-      const { error } = await supabase
-        .from("cashiers")
-        .update({ 
-          name: values.name,
-          phone: values.phone,
-          has_discount_permission: values.has_discount_permission,
-          has_expenses_permission: values.has_expenses_permission,
-        })
-        .eq("id", editingCashier.id);
+      const { error } = await supabase.from("cashiers").update({ 
+        name: values.name, phone: values.phone,
+        has_discount_permission: values.has_discount_permission,
+        has_expenses_permission: values.has_expenses_permission,
+      }).eq("id", editingCashier.id);
       
       if (error) toast.error(`Update failed: ${error.message}`);
       else {
@@ -162,18 +160,10 @@ export default function CashiersPage() {
         setIsSubmitting(false);
         return;
       }
-      
-      const response = await fetch('/api/cashiers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
-      });
-
+      const response = await fetch('/api/cashiers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
       const result = await response.json();
-
-      if (!response.ok) {
-        toast.error(`Failed to create cashier: ${result.error || 'An unknown error occurred.'}`);
-      } else {
+      if (!response.ok) toast.error(`Failed to create cashier: ${result.error || 'An unknown error occurred.'}`);
+      else {
         toast.success("Cashier created successfully!");
         await fetchCashiers();
         setDialogOpen(false);
@@ -185,77 +175,46 @@ export default function CashiersPage() {
   const onPasswordSubmit = async (values: z.infer<typeof passwordSchema>) => {
     if (!cashierForPassword) return;
     setIsSubmitting(true);
-
-    const response = await fetch('/api/cashiers', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: cashierForPassword.user_id,
-        password: values.password,
-      }),
-    });
-
+    const response = await fetch('/api/cashiers', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: cashierForPassword.user_id, password: values.password }) });
     const result = await response.json();
-
-    if (!response.ok) {
-      toast.error(`Failed to update password: ${result.error || 'An unknown error occurred.'}`);
-    } else {
-      toast.success("Password reset successfully! The cashier must change it on next login.");
+    if (!response.ok) toast.error(`Failed to update password: ${result.error || 'An unknown error occurred.'}`);
+    else {
+      toast.success("Password reset successfully!");
       setPasswordDialogOpen(false);
     }
     setIsSubmitting(false);
   };
 
   const handleDelete = async () => {
-    if (!cashierToDelete || !cashierToDelete.user_id) return;
-    
+    if (itemsToDelete.length === 0) return;
     setIsDeleting(true);
+    
+    const uids = cashiers.filter(c => itemsToDelete.includes(c.id)).map(c => c.user_id);
+
     const response = await fetch('/api/cashiers', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: cashierToDelete.user_id }),
+      body: JSON.stringify({ user_ids: uids }),
     });
 
     const result = await response.json();
 
-    if (!response.ok) {
-      toast.error(`Failed to delete cashier: ${result.error || 'An unknown error occurred.'}`);
-    } else {
-      toast.success("Cashier deleted successfully!");
+    if (!response.ok) toast.error(`Failed to delete cashier(s): ${result.error || 'An unknown error occurred.'}`);
+    else {
+      toast.success("Cashier(s) deleted successfully!");
       fetchCashiers();
+      setSelectedItems([]);
     }
     setIsDeleting(false);
     setDeleteAlertOpen(false);
   };
 
-  const handleEdit = (cashier: Cashier) => {
-    setEditingCashier(cashier);
-    form.reset({
-      name: cashier.name,
-      email: cashier.email ?? "",
-      phone: cashier.phone ?? "",
-      has_discount_permission: cashier.has_discount_permission,
-      has_expenses_permission: cashier.has_expenses_permission,
-      password: "",
-    });
-    setDialogOpen(true);
+  const handleSelectAll = (checked: boolean) => {
+    setSelectedItems(checked ? cashiers.map(c => c.id) : []);
   };
 
-  const handlePasswordReset = (cashier: Cashier) => {
-    setCashierForPassword(cashier);
-    passwordForm.reset({ password: "" });
-    setPasswordDialogOpen(true);
-  };
-
-  const generateRandomPassword = (targetForm: any) => {
-    const length = 12;
-    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
-    let retVal = "";
-    for (let i = 0, n = charset.length; i < length; ++i) {
-      retVal += charset.charAt(Math.floor(Math.random() * n));
-    }
-    targetForm.setValue("password", retVal);
-    toast.info("Random password generated and filled.");
+  const handleSelectItem = (id: string, checked: boolean) => {
+    setSelectedItems(prev => checked ? [...prev, id] : prev.filter(itemId => itemId !== id));
   };
 
   useEffect(() => {
@@ -263,14 +222,7 @@ export default function CashiersPage() {
       setEditingCashier(null);
       form.reset({ name: "", email: "", phone: "", has_discount_permission: false, has_expenses_permission: false, password: "" });
     }
-  }, [dialogOpen]);
-
-  useEffect(() => {
-    if (!passwordDialogOpen) {
-      setCashierForPassword(null);
-      passwordForm.reset({ password: "" });
-    }
-  }, [passwordDialogOpen]);
+  }, [dialogOpen, form]);
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
@@ -283,160 +235,98 @@ export default function CashiersPage() {
               <CardTitle>Cashiers</CardTitle>
               <CardDescription>Manage cashier accounts and permissions.</CardDescription>
             </div>
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="gap-1"><PlusCircle className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Add Cashier</span>
+            <div className="flex items-center gap-2">
+              {selectedItems.length > 0 && (
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={() => { setItemsToDelete(selectedItems); setDeleteAlertOpen(true); }}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Delete Selected ({selectedItems.length})
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                  <DialogTitle>{editingCashier ? "Edit" : "Add"} Cashier</DialogTitle>
-                </DialogHeader>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                    <FormField control={form.control} name="name" render={({ field }) => (
-                      <FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-                    )} />
-                    <FormField control={form.control} name="email" render={({ field }) => (
-                      <FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" {...field} disabled={!!editingCashier} /></FormControl><FormMessage /></FormItem>
-                    )} />
+              )}
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" className="gap-1"><PlusCircle className="h-3.5 w-3.5" />
+                    <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Add Cashier</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader><DialogTitle>{editingCashier ? "Edit" : "Add"} Cashier</DialogTitle></DialogHeader>
+                  <Form {...form}><form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                    <FormField control={form.control} name="name" render={({ field }) => (<FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="email" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" {...field} disabled={!!editingCashier} /></FormControl><FormMessage /></FormItem>)} />
                     {!editingCashier && (
-                      <FormField control={form.control} name="password" render={({ field }) => (
-                        <FormItem><FormLabel>Password</FormLabel>
-                          <div className="flex items-center gap-2">
-                            <FormControl><Input type="text" {...field} /></FormControl>
-                            <Button type="button" variant="outline" size="icon" onClick={() => generateRandomPassword(form)}><Sparkles className="h-4 w-4" /></Button>
-                          </div>
-                        <FormMessage /></FormItem>
-                      )} />
+                      <FormField control={form.control} name="password" render={({ field }) => (<FormItem><FormLabel>Password</FormLabel><FormControl><Input type="text" {...field} /></FormControl><FormMessage /></FormItem>)} />
                     )}
-                    <FormField control={form.control} name="phone" render={({ field }) => (
-                      <FormItem><FormLabel>Phone</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-                    )} />
+                    <FormField control={form.control} name="phone" render={({ field }) => (<FormItem><FormLabel>Phone</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="has_discount_permission" render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                        <div className="space-y-0.5"><FormLabel>Discount Permission</FormLabel></div>
-                        <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                      </FormItem>
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"><div className="space-y-0.5"><FormLabel>Discount Permission</FormLabel></div><FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>
                     )} />
                     <FormField control={form.control} name="has_expenses_permission" render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                        <div className="space-y-0.5"><FormLabel>Expenses Permission</FormLabel></div>
-                        <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                      </FormItem>
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"><div className="space-y-0.5"><FormLabel>Expenses Permission</FormLabel></div><FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>
                     )} />
                     <DialogFooter>
                       <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                      <Button type="submit" disabled={isSubmitting}>
-                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {isSubmitting ? "Saving..." : "Save"}
-                      </Button>
+                      <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
                     </DialogFooter>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
+                  </form></Form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[40px]">
+                  <Checkbox 
+                    checked={selectedItems.length === cashiers.length && cashiers.length > 0}
+                    onCheckedChange={handleSelectAll}
+                  />
+                </TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Discount Permission</TableHead>
-                <TableHead>Expenses Permission</TableHead>
+                <TableHead>Discount</TableHead>
+                <TableHead>Expenses</TableHead>
                 <TableHead><span className="sr-only">Actions</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={5} className="text-center">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center">Loading...</TableCell></TableRow>
               ) : cashiers.length > 0 ? (
                 cashiers.map((cashier) => (
                   <TableRow key={cashier.id}>
+                    <TableCell><Checkbox checked={selectedItems.includes(cashier.id)} onCheckedChange={(checked) => handleSelectItem(cashier.id, !!checked)} /></TableCell>
                     <TableCell className="font-medium">{cashier.name}</TableCell>
                     <TableCell>{cashier.email}</TableCell>
-                    <TableCell>
-                      {cashier.has_discount_permission ? <Badge>Yes</Badge> : <Badge variant="secondary">No</Badge>}
-                    </TableCell>
-                    <TableCell>
-                      {cashier.has_expenses_permission ? <Badge>Yes</Badge> : <Badge variant="secondary">No</Badge>}
-                    </TableCell>
+                    <TableCell>{cashier.has_discount_permission ? <Badge>Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
+                    <TableCell>{cashier.has_expenses_permission ? <Badge>Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild><Button aria-haspopup="true" size="icon" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem onSelect={() => handleEdit(cashier)}><Pencil className="mr-2 h-4 w-4" />Edit Profile</DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => handlePasswordReset(cashier)}><KeyRound className="mr-2 h-4 w-4" />Change Password</DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-600" onSelect={() => { setCashierToDelete(cashier); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete Account</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => { setEditingCashier(cashier); form.reset(cashier); setDialogOpen(true); }}><Pencil className="mr-2 h-4 w-4" />Edit Profile</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => { setCashierForPassword(cashier); setPasswordDialogOpen(true); }}><KeyRound className="mr-2 h-4 w-4" />Change Password</DropdownMenuItem>
+                          <DropdownMenuItem className="text-red-600" onSelect={() => { setItemsToDelete([cashier.id]); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete Account</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))
               ) : (
-                <TableRow><TableCell colSpan={5} className="text-center">No cashiers found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center">No cashiers found.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
-          <DataTablePagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={setCurrentPage}
-            totalCount={totalCount}
-            pageSize={PAGE_SIZE}
-          />
+          <DataTablePagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalCount={totalCount} pageSize={PAGE_SIZE} />
         </CardContent>
       </Card>
-
-      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Reset Cashier Password</DialogTitle>
-            <DialogDescription>
-              Set a new temporary password for {cashierForPassword?.name}. They will be forced to change it when they next sign in.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...passwordForm}>
-            <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
-              <FormField control={passwordForm.control} name="password" render={({ field }) => (
-                <FormItem><FormLabel>New Password</FormLabel>
-                  <div className="flex items-center gap-2">
-                    <FormControl><Input type="text" {...field} placeholder="At least 8 characters" /></FormControl>
-                    <Button type="button" variant="outline" size="icon" onClick={() => generateRandomPassword(passwordForm)}><Sparkles className="h-4 w-4" /></Button>
-                  </div>
-                <FormMessage /></FormItem>
-              )} />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setPasswordDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {isSubmitting ? "Updating..." : "Update Password"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={deleteAlertOpen} onOpenChange={setDeleteAlertOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently delete the cashier "{cashierToDelete?.name}" and their login access.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isDeleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AlertDialog open={deleteAlertOpen} onOpenChange={setDeleteAlertOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the selected cashier account(s).</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{isDeleting ? "Deleting..." : "Delete"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     </>
   );
 }

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// This is a server-side route using secure environment variables.
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -11,10 +10,7 @@ const supabaseAdmin = createClient(
 export async function POST(request: Request) {
   try {
     const { name, email, phone, has_discount_permission, has_expenses_permission, password } = await request.json();
-
-    if (!password) {
-      return NextResponse.json({ error: "Password is required." }, { status: 400 });
-    }
+    if (!password) return NextResponse.json({ error: "Password is required." }, { status: 400 });
 
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: email,
@@ -23,16 +19,12 @@ export async function POST(request: Request) {
     });
 
     if (authError) {
-      if (authError.message.includes('already registered')) {
-        return NextResponse.json({ error: 'A user with this email already exists.' }, { status: 409 });
-      }
+      if (authError.message.includes('already registered')) return NextResponse.json({ error: 'A user with this email already exists.' }, { status: 409 });
       throw authError;
     }
     
     const newUser = authData.user;
-    if (!newUser) {
-      throw new Error("User could not be created.");
-    }
+    if (!newUser) throw new Error("User could not be created.");
 
     const { error: cashierError } = await supabaseAdmin
       .from('cashiers')
@@ -47,13 +39,11 @@ export async function POST(request: Request) {
       });
 
     if (cashierError) {
-      // If creating the profile fails, delete the auth user to prevent orphaned accounts.
       await supabaseAdmin.auth.admin.deleteUser(newUser.id);
       throw cashierError;
     }
 
     return NextResponse.json({ message: "Cashier created successfully" }, { status: 200 });
-
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -62,29 +52,15 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const { user_id, password } = await request.json();
+    if (!user_id || !password) return NextResponse.json({ error: "User ID and New Password are required." }, { status: 400 });
 
-    if (!user_id || !password) {
-      return NextResponse.json({ error: "User ID and New Password are required." }, { status: 400 });
-    }
-
-    // 1. Update the password in Supabase Auth
-    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
-      user_id,
-      { password: password }
-    );
-
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(user_id, { password: password });
     if (authError) throw authError;
 
-    // 2. Force password change on next login for security
-    const { error: dbError } = await supabaseAdmin
-      .from('cashiers')
-      .update({ password_change_required: true })
-      .eq('user_id', user_id);
-
+    const { error: dbError } = await supabaseAdmin.from('cashiers').update({ password_change_required: true }).eq('user_id', user_id);
     if (dbError) throw dbError;
 
     return NextResponse.json({ message: "Password updated successfully" }, { status: 200 });
-
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -92,20 +68,15 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const { user_id } = await request.json();
+    const { user_ids } = await request.json();
+    if (!user_ids || !Array.isArray(user_ids)) return NextResponse.json({ error: "user_ids array is required." }, { status: 400 });
 
-    if (!user_id) {
-      return NextResponse.json({ error: "user_id is required." }, { status: 400 });
+    // Iterate and delete each user from Auth
+    for (const id of user_ids) {
+      await supabaseAdmin.auth.admin.deleteUser(id);
     }
 
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(user_id);
-
-    if (error) {
-      throw error;
-    }
-
-    return NextResponse.json({ message: "Cashier deleted successfully" }, { status: 200 });
-
+    return NextResponse.json({ message: `${user_ids.length} cashiers deleted successfully` }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

@@ -53,8 +53,10 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
+import { DataTablePagination } from "@/components/data-table-pagination";
 
 type AcademicYear = {
   id: string;
@@ -68,6 +70,8 @@ const formSchema = z.object({
   is_active: z.boolean(),
 });
 
+const PAGE_SIZE = 10;
+
 export function AcademicYearManagement() {
   const [items, setItems] = useState<AcademicYear[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -76,7 +80,10 @@ export function AcademicYearManagement() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AcademicYear | null>(null);
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState<AcademicYear | null>(null);
+  const [itemsToDelete, setItemsToDelete] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -85,49 +92,40 @@ export function AcademicYearManagement() {
 
   const fetchData = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
+    const from = (currentPage - 1) * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    const { data, error, count } = await supabase
       .from("academic_years")
-      .select("*")
-      .order("year_name", { ascending: false });
+      .select("*", { count: 'exact' })
+      .order("year_name", { ascending: false })
+      .range(from, to);
 
     if (error) {
       toast.error("Failed to fetch academic years.");
     } else {
       setItems(data || []);
+      setTotalCount(count || 0);
     }
     setIsLoading(false);
   };
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [currentPage]);
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
     const toastId = toast.loading("Saving academic year...");
 
-    // Perform the insert or update
     if (editingItem) {
-      const { error } = await supabase
-        .from("academic_years")
-        .update(values)
-        .eq("id", editingItem.id);
-
-      if (error) {
-        toast.error(`Update failed: ${error.message}`, { id: toastId });
-      } else {
-        toast.success("Academic Year updated successfully!", { id: toastId });
-      }
-    } else { // Creating a new item
-      const { error } = await supabase
-        .from("academic_years")
-        .insert([values]);
-
-      if (error) {
-        toast.error(`Creation failed: ${error.message}`, { id: toastId });
-      } else {
-        toast.success("Academic Year created successfully!", { id: toastId });
-      }
+      const { error } = await supabase.from("academic_years").update(values).eq("id", editingItem.id);
+      if (error) toast.error(`Update failed: ${error.message}`, { id: toastId });
+      else toast.success("Academic Year updated successfully!", { id: toastId });
+    } else {
+      const { error } = await supabase.from("academic_years").insert([values]);
+      if (error) toast.error(`Creation failed: ${error.message}`, { id: toastId });
+      else toast.success("Academic Year created successfully!", { id: toastId });
     }
 
     await fetchData();
@@ -136,19 +134,24 @@ export function AcademicYearManagement() {
   };
 
   const handleDelete = async () => {
-    if (!itemToDelete) return;
-    if (itemToDelete.is_active) {
-        toast.error("Cannot delete the active academic year. Please set another year as active first.");
-        setDeleteAlertOpen(false);
-        return;
+    if (itemsToDelete.length === 0) return;
+    
+    // Check if any selected item is active
+    const activeSelected = items.filter(item => itemsToDelete.includes(item.id) && item.is_active);
+    if (activeSelected.length > 0) {
+      toast.error("Cannot delete active academic year(s). Please set another year as active first.");
+      setDeleteAlertOpen(false);
+      return;
     }
+
     setIsDeleting(true);
-    const { error } = await supabase.from("academic_years").delete().eq("id", itemToDelete.id);
+    const { error } = await supabase.from("academic_years").delete().in("id", itemsToDelete);
     if (error) {
-      toast.error("Failed to delete academic year.");
+      toast.error("Failed to delete academic year(s).");
     } else {
-      toast.success("Academic year deleted successfully!");
+      toast.success(`${itemsToDelete.length} year(s) deleted successfully!`);
       fetchData();
+      setSelectedItems([]);
     }
     setIsDeleting(false);
     setDeleteAlertOpen(false);
@@ -160,6 +163,14 @@ export function AcademicYearManagement() {
     setDialogOpen(true);
   };
 
+  const handleSelectAll = (checked: boolean) => {
+    setSelectedItems(checked ? items.map(i => i.id) : []);
+  };
+
+  const handleSelectItem = (id: string, checked: boolean) => {
+    setSelectedItems(prev => checked ? [...prev, id] : prev.filter(itemId => itemId !== id));
+  };
+
   useEffect(() => {
     if (!dialogOpen) {
       setEditingItem(null);
@@ -167,9 +178,21 @@ export function AcademicYearManagement() {
     }
   }, [dialogOpen, form]);
 
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+
   return (
     <>
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        {selectedItems.length > 0 && (
+          <Button 
+            variant="destructive" 
+            size="sm" 
+            onClick={() => { setItemsToDelete(selectedItems); setDeleteAlertOpen(true); }}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1" />
+            Delete Selected ({selectedItems.length})
+          </Button>
+        )}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="gap-1">
@@ -190,16 +213,9 @@ export function AcademicYearManagement() {
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                     <div className="space-y-0.5">
                       <FormLabel>Set as Active Year</FormLabel>
-                      <FormDescription>
-                        Active years will appear in student-related dropdowns.
-                      </FormDescription>
+                      <FormDescription>Active years will appear in student-related dropdowns.</FormDescription>
                     </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
+                    <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
                   </FormItem>
                 )} />
                 <DialogFooter>
@@ -218,6 +234,12 @@ export function AcademicYearManagement() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-[40px]">
+                <Checkbox 
+                  checked={selectedItems.length === items.length && items.length > 0}
+                  onCheckedChange={handleSelectAll}
+                />
+              </TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created At</TableHead>
@@ -226,18 +248,18 @@ export function AcademicYearManagement() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={4} className="text-center">Loading...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center">Loading...</TableCell></TableRow>
             ) : items.length > 0 ? (
               items.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.year_name}</TableCell>
                   <TableCell>
-                    {item.is_active ? (
-                      <Badge>Active</Badge>
-                    ) : (
-                      <Badge variant="secondary">Inactive</Badge>
-                    )}
+                    <Checkbox 
+                      checked={selectedItems.includes(item.id)}
+                      onCheckedChange={(checked) => handleSelectItem(item.id, !!checked)}
+                    />
                   </TableCell>
+                  <TableCell className="font-medium">{item.year_name}</TableCell>
+                  <TableCell>{item.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</TableCell>
                   <TableCell>{new Date(item.created_at).toLocaleDateString()}</TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -245,23 +267,30 @@ export function AcademicYearManagement() {
                       <DropdownMenuContent align="end">
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
                         <DropdownMenuItem onSelect={() => handleEdit(item)}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600" onSelect={() => { setItemToDelete(item); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
+                        <DropdownMenuItem className="text-red-600" onSelect={() => { setItemsToDelete([item.id]); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={4} className="text-center">No items found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center">No items found.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
       </div>
+      <DataTablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        totalCount={totalCount}
+        pageSize={PAGE_SIZE}
+      />
       <AlertDialog open={deleteAlertOpen} onOpenChange={setDeleteAlertOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently delete the "{itemToDelete?.year_name}" academic year.</AlertDialogDescription>
+            <AlertDialogDescription>This will permanently delete the selected academic year(s).</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

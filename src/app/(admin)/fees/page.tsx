@@ -26,7 +26,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -79,10 +78,11 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
+import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { DataTablePagination } from "@/components/data-table-pagination";
 
-// Types
 type FeeStructure = {
   id: string;
   fee_name: string;
@@ -95,7 +95,6 @@ type FeeStructure = {
 type ClassGroup = { id: string; name: string };
 type StudentType = { id: string; name: string };
 
-// Zod Schema for Form Validation
 const formSchema = z.object({
   fee_name: z.string().min(1, "Fee name is required"),
   amount: z.coerce.number().min(0, "Amount must be a positive number"),
@@ -103,6 +102,8 @@ const formSchema = z.object({
   student_type_id: z.string().optional(),
   fee_type: z.enum(["Tuition", "Custom"]),
 });
+
+const PAGE_SIZE = 10;
 
 export default function FeesPage() {
   const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([]);
@@ -114,39 +115,43 @@ export default function FeesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingFee, setEditingFee] = useState<FeeStructure | null>(null);
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
-  const [feeToDelete, setFeeToDelete] = useState<FeeStructure | null>(null);
+  const [itemsToDelete, setItemsToDelete] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: { fee_name: "", amount: 0, fee_type: "Tuition" },
   });
 
-  // Data Fetching
   const fetchData = async () => {
     setIsLoading(true);
+    const from = (currentPage - 1) * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
     const [feesRes, groupsRes, typesRes] = await Promise.all([
-      supabase.from("fee_structures").select("*, class_groups(*), student_types(*)"),
+      supabase.from("fee_structures").select("*, class_groups(*), student_types(*)", { count: 'exact' }).order("created_at", { ascending: false }).range(from, to),
       supabase.from("class_groups").select("*"),
       supabase.from("student_types").select("*"),
     ]);
 
     if (feesRes.error) toast.error("Failed to fetch fee structures.");
-    else setFeeStructures(feesRes.data || []);
+    else {
+      setFeeStructures(feesRes.data || []);
+      setTotalCount(feesRes.count || 0);
+    }
 
-    if (groupsRes.error) toast.error("Failed to fetch class groups.");
-    else setClassGroups(groupsRes.data || []);
-
-    if (typesRes.error) toast.error("Failed to fetch student types.");
-    else setStudentTypes(typesRes.data || []);
+    if (groupsRes.data) setClassGroups(groupsRes.data);
+    if (typesRes.data) setStudentTypes(typesRes.data);
     
     setIsLoading(false);
   };
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [currentPage]);
 
-  // Form Submission (Create/Update)
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
     const dataToSubmit = {
@@ -155,15 +160,11 @@ export default function FeesPage() {
       student_type_id: values.student_type_id === 'both' ? null : values.student_type_id,
     };
 
-    const query = editingFee
-      ? supabase.from("fee_structures").update(dataToSubmit).eq("id", editingFee.id)
-      : supabase.from("fee_structures").insert([dataToSubmit]);
-
+    const query = editingFee ? supabase.from("fee_structures").update(dataToSubmit).eq("id", editingFee.id) : supabase.from("fee_structures").insert([dataToSubmit]);
     const { error } = await query;
 
-    if (error) {
-      toast.error(`Operation failed: ${error.message}`);
-    } else {
+    if (error) toast.error(`Operation failed: ${error.message}`);
+    else {
       toast.success(`Fee structure ${editingFee ? 'updated' : 'created'} successfully!`);
       await fetchData();
       setDialogOpen(false);
@@ -171,38 +172,29 @@ export default function FeesPage() {
     setIsSubmitting(false);
   };
 
-  // Delete Operation
   const handleDelete = async () => {
-    if (!feeToDelete) return;
+    if (itemsToDelete.length === 0) return;
     setIsDeleting(true);
-    const { error } = await supabase.from("fee_structures").delete().eq("id", feeToDelete.id);
-    if (error) {
-      toast.error("Failed to delete fee structure.");
-    } else {
-      toast.success("Fee structure deleted successfully!");
+    const { error } = await supabase.from("fee_structures").delete().in("id", itemsToDelete);
+    if (error) toast.error("Failed to delete fee structure(s).");
+    else {
+      toast.success(`${itemsToDelete.length} structure(s) deleted successfully!`);
       fetchData();
+      setSelectedItems([]);
     }
     setIsDeleting(false);
     setDeleteAlertOpen(false);
   };
 
-  // Handlers for UI actions
-  const handleEdit = (fee: FeeStructure) => {
-    setEditingFee(fee);
-    form.reset({
-      ...fee,
-      class_group_id: fee.class_groups?.id || 'all',
-      student_type_id: fee.student_types?.id || 'both',
-    });
-    setDialogOpen(true);
+  const handleSelectAll = (checked: boolean) => {
+    setSelectedItems(checked ? feeStructures.map(f => f.id) : []);
   };
 
-  useEffect(() => {
-    if (!dialogOpen) {
-      setEditingFee(null);
-      form.reset({ fee_name: "", amount: 0, fee_type: "Tuition", class_group_id: 'all', student_type_id: 'both' });
-    }
-  }, [dialogOpen, form]);
+  const handleSelectItem = (id: string, checked: boolean) => {
+    setSelectedItems(prev => checked ? [...prev, id] : prev.filter(itemId => itemId !== id));
+  };
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   return (
     <>
@@ -211,214 +203,92 @@ export default function FeesPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Fee Structure</CardTitle>
-              <CardDescription>Manage fee structures for different student and class types.</CardDescription>
+              <CardDescription>Manage fee structures for students.</CardDescription>
             </div>
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="gap-1">
-                  <PlusCircle className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Add Fee</span>
+            <div className="flex items-center gap-2">
+              {selectedItems.length > 0 && (
+                <Button variant="destructive" size="sm" onClick={() => { setItemsToDelete(selectedItems); setDeleteAlertOpen(true); }}>
+                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Selected ({selectedItems.length})
                 </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>{editingFee ? "Edit" : "Add"} Fee Structure</DialogTitle>
-                </DialogHeader>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                    <FormField control={form.control} name="fee_name" render={({ field }) => (
-                      <FormItem><FormLabel>Fee Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-                    )} />
-                    <FormField control={form.control} name="amount" render={({ field }) => (
-                      <FormItem><FormLabel>Amount</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
-                    )} />
-                    <FormField control={form.control} name="class_group_id" render={({ field }) => (
-                      <FormItem className="flex flex-col"><FormLabel>Class Group</FormLabel>
-                        <ClassGroupCombobox classGroups={classGroups} value={field.value} onChange={field.onChange} onNewGroupAdded={fetchData} />
-                      <FormMessage /></FormItem>
-                    )} />
+              )}
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild><Button size="sm" className="gap-1"><PlusCircle className="h-3.5 w-3.5" /> <span className="sr-only sm:not-sr-only">Add Fee</span></Button></DialogTrigger>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>{editingFee ? "Edit" : "Add"} Fee Structure</DialogTitle></DialogHeader>
+                  <Form {...form}><form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                    <FormField control={form.control} name="fee_name" render={({ field }) => (<FormItem><FormLabel>Fee Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="amount" render={({ field }) => (<FormItem><FormLabel>Amount</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="class_group_id" render={({ field }) => (<FormItem><FormLabel>Class Group</FormLabel><ClassGroupCombobox classGroups={classGroups} value={field.value} onChange={field.onChange} onNewGroupAdded={fetchData} /><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="student_type_id" render={({ field }) => (
-                      <FormItem><FormLabel>Student Type</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl><SelectTrigger><SelectValue placeholder="Select a student type" /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            <SelectItem value="both">Both</SelectItem>
-                            {studentTypes.map(type => <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      <FormMessage /></FormItem>
+                      <FormItem><FormLabel>Student Type</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="both">Both</SelectItem>{studentTypes.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select><FormMessage /></FormItem>
                     )} />
                     <FormField control={form.control} name="fee_type" render={({ field }) => (
-                      <FormItem><FormLabel>Fee Type</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl><SelectTrigger><SelectValue placeholder="Select a fee type" /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            <SelectItem value="Tuition">Tuition</SelectItem>
-                            <SelectItem value="Custom">Custom</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      <FormMessage /></FormItem>
+                      <FormItem><FormLabel>Fee Type</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="Tuition">Tuition</SelectItem><SelectItem value="Custom">Custom</SelectItem></SelectContent></Select><FormMessage /></FormItem>
                     )} />
-                    <DialogFooter>
-                      <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                      <Button type="submit" disabled={isSubmitting}>
-                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {isSubmitting ? "Saving..." : "Save"}
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
+                    <DialogFooter><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button></DialogFooter>
+                  </form></Form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Fee Name</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Class Group</TableHead>
-                <TableHead>Student Type</TableHead>
-                <TableHead>Fee Type</TableHead>
-                <TableHead><span className="sr-only">Actions</span></TableHead>
-              </TableRow>
-            </TableHeader>
+            <TableHeader><TableRow>
+              <TableHead className="w-[40px]"><Checkbox checked={selectedItems.length === feeStructures.length && feeStructures.length > 0} onCheckedChange={handleSelectAll} /></TableHead>
+              <TableHead>Fee Name</TableHead><TableHead>Amount</TableHead><TableHead>Class</TableHead><TableHead>Student Type</TableHead><TableHead>Type</TableHead><TableHead className="sr-only">Actions</TableHead>
+            </TableRow></TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={6} className="text-center">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center">Loading...</TableCell></TableRow>
               ) : feeStructures.length > 0 ? (
                 feeStructures.map((fee) => (
                   <TableRow key={fee.id}>
+                    <TableCell><Checkbox checked={selectedItems.includes(fee.id)} onCheckedChange={(checked) => handleSelectItem(fee.id, !!checked)} /></TableCell>
                     <TableCell className="font-medium">{fee.fee_name}</TableCell>
-                    <TableCell>{fee.amount}</TableCell>
-                    <TableCell>{fee.class_groups?.name || "All"}</TableCell>
-                    <TableCell>{fee.student_types?.name || "Both"}</TableCell>
-                    <TableCell>{fee.fee_type}</TableCell>
+                    <TableCell>{fee.amount}</TableCell><TableCell>{fee.class_groups?.name || "All"}</TableCell><TableCell>{fee.student_types?.name || "Both"}</TableCell><TableCell>{fee.fee_type}</TableCell>
                     <TableCell>
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button aria-haspopup="true" size="icon" variant="ghost"><MoreHorizontal className="h-4 w-4" /><span className="sr-only">Toggle menu</span></Button></DropdownMenuTrigger>
+                        <DropdownMenuTrigger asChild><Button size="icon" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem onSelect={() => handleEdit(fee)}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-600" onSelect={() => { setFeeToDelete(fee); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => { setEditingFee(fee); form.reset({...fee, class_group_id: fee.class_groups?.id || 'all', student_type_id: fee.student_types?.id || 'both'}); setDialogOpen(true); }}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
+                          <DropdownMenuItem className="text-red-600" onSelect={() => { setItemsToDelete([fee.id]); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))
               ) : (
-                <TableRow><TableCell colSpan={6} className="text-center">No fee structures found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center">No structures found.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
+          <DataTablePagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalCount={totalCount} pageSize={PAGE_SIZE} />
         </CardContent>
       </Card>
-      <AlertDialog open={deleteAlertOpen} onOpenChange={setDeleteAlertOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently delete the fee structure "{feeToDelete?.fee_name}".</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isDeleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AlertDialog open={deleteAlertOpen} onOpenChange={setDeleteAlertOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the selected fee structure(s).</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{isDeleting ? "Deleting..." : "Delete"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     </>
   );
 }
 
-// Reusable Combobox for Class Groups
-function ClassGroupCombobox({ classGroups, value, onChange, onNewGroupAdded }: { classGroups: ClassGroup[], value?: string, onChange: (value: string) => void, onNewGroupAdded: () => void }) {
+function ClassGroupCombobox({ classGroups, value, onChange, onNewGroupAdded }: any) {
   const [open, setOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [isAdding, setIsAdding] = useState(false);
-
-  const handleAddNewGroup = async () => {
-    const trimmedName = newGroupName.trim();
-    if (!trimmedName) return;
+  const handleAdd = async () => {
     setIsAdding(true);
-
-    const { data: existing } = await supabase.from("class_groups").select("id").ilike("name", trimmedName).single();
-    if (existing) {
-      toast.error(`Class group "${trimmedName}" already exists.`);
-      setIsAdding(false);
-      return;
-    }
-
-    const { data, error } = await supabase.from("class_groups").insert({ name: trimmedName }).select().single();
-    if (error) {
-      toast.error(`Failed to add group: ${error.message}`);
-    } else {
-      toast.success("New class group added!");
-      onNewGroupAdded();
-      onChange(data.id);
-      setDialogOpen(false);
-      setNewGroupName("");
-    }
+    const { data, error } = await supabase.from("class_groups").insert({ name: newGroupName.trim() }).select().single();
+    if (error) toast.error(error.message);
+    else { toast.success("Added!"); onNewGroupAdded(); onChange(data.id); setDialogOpen(false); setNewGroupName(""); }
     setIsAdding(false);
   };
-
-  const displayValue = value === 'all' ? "All" : classGroups.find((cg) => cg.id === value)?.name;
-
   return (
-    <>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between">
-            {displayValue || "Select class group..."}
-            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-          <Command>
-            <CommandInput placeholder="Search class group..." />
-            <CommandList>
-              <CommandEmpty>No class group found.</CommandEmpty>
-              <CommandGroup>
-                <CommandItem value="all" onSelect={() => { onChange("all"); setOpen(false); }}>
-                  <Check className={cn("mr-2 h-4 w-4", value === "all" ? "opacity-100" : "opacity-0")} />
-                  All
-                </CommandItem>
-                {classGroups.map((cg) => (
-                  <CommandItem key={cg.id} value={cg.name} onSelect={() => { onChange(cg.id); setOpen(false); }}>
-                    <Check className={cn("mr-2 h-4 w-4", value === cg.id ? "opacity-100" : "opacity-0")} />
-                    {cg.name}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-              <CommandSeparator />
-              <CommandGroup>
-                <CommandItem onSelect={() => { setOpen(false); setDialogOpen(true); }}>
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Add New Group
-                </CommandItem>
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Class Group</DialogTitle>
-          </DialogHeader>
-          <Input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="e.g., BSc" />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddNewGroup} disabled={isAdding}>
-              {isAdding && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isAdding ? "Adding..." : "Add Group"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+    <><Popover open={open} onOpenChange={setOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-between">{value === 'all' ? "All" : classGroups.find((cg: any) => cg.id === value)?.name || "Select group..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></PopoverTrigger>
+    <PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Search..." /><CommandList><CommandEmpty>No results.</CommandEmpty><CommandGroup>
+      <CommandItem value="all" onSelect={() => { onChange("all"); setOpen(false); }}><Check className={cn("mr-2 h-4 w-4", value === "all" ? "opacity-100" : "opacity-0")} /> All</CommandItem>
+      {classGroups.map((cg: any) => (<CommandItem key={cg.id} value={cg.name} onSelect={() => { onChange(cg.id); setOpen(false); }}><Check className={cn("mr-2 h-4 w-4", value === cg.id ? "opacity-100" : "opacity-0")} /> {cg.name}</CommandItem>))}
+    </CommandGroup><CommandSeparator /><CommandGroup><CommandItem onSelect={() => { setOpen(false); setDialogOpen(true); }}><PlusCircle className="mr-2 h-4 w-4" /> Add New</CommandItem></CommandGroup></CommandList></Command></PopoverContent></Popover>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent><DialogHeader><DialogTitle>Add Class Group</DialogTitle></DialogHeader><Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} /><DialogFooter><Button onClick={handleAdd} disabled={isAdding}>Add</Button></DialogFooter></DialogContent></Dialog></>
   );
 }
