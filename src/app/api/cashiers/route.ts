@@ -9,7 +9,8 @@ const supabaseAdmin = createClient(
 
 export async function POST(request: Request) {
   try {
-    const { name, email, phone, has_discount_permission, has_expenses_permission, password } = await request.json();
+    const { name, email, phone, has_discount_permission, has_expenses_permission, password, role } = await request.json();
+
     if (!password) return NextResponse.json({ error: "Password is required." }, { status: 400 });
 
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
         has_discount_permission,
         has_expenses_permission,
         password_change_required: true,
+        role: role || 'cashier', // Default to cashier if not specified
       });
 
     if (cashierError) {
@@ -43,7 +45,7 @@ export async function POST(request: Request) {
       throw cashierError;
     }
 
-    return NextResponse.json({ message: "Cashier created successfully" }, { status: 200 });
+    return NextResponse.json({ message: "Account created successfully" }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -52,7 +54,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const { user_id, password } = await request.json();
-    if (!user_id || !password) return NextResponse.json({ error: "User ID and New Password are required." }, { status: 400 });
+    if (!user_id || !password) return NextResponse.json({ error: "User ID and Password are required." }, { status: 400 });
 
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(user_id, { password: password });
     if (authError) throw authError;
@@ -69,14 +71,13 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { user_ids } = await request.json();
-    if (!user_ids || !Array.isArray(user_ids)) return NextResponse.json({ error: "user_ids array is required." }, { status: 400 });
+    if (!user_ids || !Array.isArray(user_ids)) return NextResponse.json({ error: "user_ids array required." }, { status: 400 });
 
-    // Iterate and delete each user from Auth
     for (const id of user_ids) {
       await supabaseAdmin.auth.admin.deleteUser(id);
     }
 
-    return NextResponse.json({ message: `${user_ids.length} cashiers deleted successfully` }, { status: 200 });
+    return NextResponse.json({ message: "Accounts deleted successfully" }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
