@@ -219,6 +219,7 @@ export default function SettingsPage() {
                 <div className="text-center">
                   <p className="text-sm font-medium">College Logo</p>
                   <p className="text-xs text-muted-foreground">Click to change (JPG/PNG, Max 2MB)</p>
+                  <p className="text-[10px] font-bold text-primary uppercase tracking-wider mt-1">Recommended ratio 1:1</p>
                 </div>
                 <input 
                   type="file" 
