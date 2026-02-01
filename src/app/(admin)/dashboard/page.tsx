@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { BarChart, DollarSign, Receipt, TrendingDown, TrendingUp, Users, CreditCard, Activity } from "lucide-react";
+import { BarChart, DollarSign, Receipt, TrendingDown, TrendingUp, Users, CreditCard, Activity, Building2 } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -39,11 +39,17 @@ type Stats = {
   totalStudents: number;
 };
 
+type SchoolSettings = {
+  school_name: string;
+  logo_url: string | null;
+};
+
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [barChartData, setBarChartData] = useState<any[]>([]);
   const [academicYears, setAcademicYears] = useState<{ year_name: string }[]>([]);
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
+  const [schoolSettings, setSchoolSettings] = useState<SchoolSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -58,12 +64,14 @@ export default function Dashboard() {
           expensesRes,
           yearsRes,
           studentsRes,
+          settingsRes,
         ] = await Promise.all([
           supabase.from("invoices").select("status"),
           supabase.from("payments").select("amount").gte("created_at", currentMonthStart),
           supabase.from("expenses").select("amount").gte("expense_date", currentMonthStart),
           supabase.from("academic_years").select("year_name").order("year_name", { ascending: false }),
           supabase.from("students").select("*", { count: "exact", head: true }),
+          supabase.from("school_settings").select("school_name, logo_url").single(),
         ]);
 
         const invoiceData = invoiceRes.data || [];
@@ -81,6 +89,10 @@ export default function Dashboard() {
           monthlyExpenses,
           totalStudents: studentsRes.count || 0,
         });
+
+        if (settingsRes.data) {
+          setSchoolSettings(settingsRes.data);
+        }
 
         // Prepare Years for Dropdown - Always include current year
         const yearSet = new Set<string>();
@@ -165,6 +177,27 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Branded Header Section */}
+      <div className="flex flex-col md:flex-row items-center gap-4 bg-background p-6 rounded-2xl border shadow-sm transition-all hover:shadow-md">
+        <div className="h-20 w-20 rounded-xl border bg-muted flex items-center justify-center overflow-hidden shrink-0">
+          {schoolSettings?.logo_url ? (
+            <img src={schoolSettings.logo_url} alt="College Logo" className="h-full w-full object-contain p-1" />
+          ) : (
+            <Building2 className="h-10 w-10 text-muted-foreground/40" />
+          )}
+        </div>
+        <div className="text-center md:text-left space-y-1">
+          {isLoading ? (
+            <Skeleton className="h-8 w-64" />
+          ) : (
+            <h1 className="text-2xl md:text-3xl font-ubuntu font-black text-primary tracking-tight">
+              {schoolSettings?.school_name || "Welcome to the Portal"}
+            </h1>
+          )}
+          <p className="text-muted-foreground text-sm font-medium">Administrative Overview Dashboard</p>
+        </div>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="Total Students" 
