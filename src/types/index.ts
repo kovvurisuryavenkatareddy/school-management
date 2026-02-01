@@ -1,3 +1,5 @@
+export type UserRole = 'super_admin' | 'admin' | 'cashier';
+
 export type AcademicYear = {
   id: string;
   year_name: string;
@@ -7,7 +9,7 @@ export type AcademicYear = {
 
 export type Term = {
   id: string;
-  name: string; // e.g., "Term 1", "Term 2", "Term 3"
+  name: string;
   created_at: string;
 };
 
@@ -45,12 +47,6 @@ export type FeeItem = {
 
 export type FeeStructure = { [studyingYear: string]: FeeItem[] };
 
-export type StudentListItem = {
-  id: string;
-  name: string;
-  roll_number: string;
-};
-
 export type StudentDetails = {
   id: string; name: string; roll_number: string; class: string; section: string; studying_year: string;
   caste: string | null;
@@ -85,17 +81,10 @@ export type CashierProfile = {
   has_expenses_permission: boolean;
 };
 
-export type TermFeeSummary = {
-  total: number;
-  paid: number;
-  concession: number;
-  balance: number;
-};
-
-export type FeeSummaryData = {
-  [year: string]: {
-    [feeType: string]: {
-      [term: string]: TermFeeSummary;
-    };
-  };
+export type SchoolSettings = {
+  id: string;
+  school_name: string;
+  address: string;
+  logo_url: string | null;
+  is_site_disabled: boolean;
 };
