@@ -94,8 +94,10 @@ export default function Dashboard() {
           setSchoolSettings(settingsRes.data);
         }
 
+        // Prepare Years for Dropdown - Always include current year
         const yearSet = new Set<string>();
         yearSet.add(new Date().getFullYear().toString());
+        
         if (yearsRes.data) {
           yearsRes.data.forEach(y => {
             const matched = y.year_name.match(/\d{4}/);
@@ -132,19 +134,25 @@ export default function Dashboard() {
         expenses: 0,
       }));
 
+      // Map payments to chart data
       if (paymentsRes.data) {
         paymentsRes.data.forEach((p: any) => {
           const date = new Date(p.month);
           const monthIndex = date.getUTCMonth();
-          if (monthIndex >= 0 && monthIndex < 12) monthData[monthIndex].income = Number(p.total);
+          if (monthIndex >= 0 && monthIndex < 12) {
+            monthData[monthIndex].income = Number(p.total);
+          }
         });
       }
 
+      // Map expenses to chart data
       if (expensesRes.data) {
         expensesRes.data.forEach((e: any) => {
           const date = new Date(e.month);
           const monthIndex = date.getUTCMonth();
-          if (monthIndex >= 0 && monthIndex < 12) monthData[monthIndex].expenses = Number(e.total);
+          if (monthIndex >= 0 && monthIndex < 12) {
+            monthData[monthIndex].expenses = Number(e.total);
+          }
         });
       }
 
@@ -164,6 +172,7 @@ export default function Dashboard() {
   }, [stats]);
 
   const COLORS = ['#3b82f6', '#f43f5e', '#e2e8f0'];
+
   const profit = (stats?.monthlyCollection || 0) - (stats?.monthlyExpenses || 0);
 
   return (
@@ -190,10 +199,38 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Students" value={stats?.totalStudents || 0} icon={Users} description="Enrolled across all years" isLoading={isLoading} color="blue" />
-        <StatCard title="Monthly Collection" value={currencyFormatter.format(stats?.monthlyCollection || 0)} icon={TrendingUp} description="Collected this month" isLoading={isLoading} color="emerald" />
-        <StatCard title="Monthly Expenses" value={currencyFormatter.format(stats?.monthlyExpenses || 0)} icon={TrendingDown} description="Spent this month" isLoading={isLoading} color="rose" />
-        <StatCard title="Current Profit" value={currencyFormatter.format(profit)} icon={Activity} description="Monthly net balance" isLoading={isLoading} color={profit >= 0 ? "emerald" : "rose"} />
+        <StatCard 
+          title="Total Students" 
+          value={stats?.totalStudents || 0} 
+          icon={Users} 
+          description="Enrolled across all years" 
+          isLoading={isLoading} 
+          color="blue"
+        />
+        <StatCard 
+          title="Monthly Collection" 
+          value={currencyFormatter.format(stats?.monthlyCollection || 0)} 
+          icon={TrendingUp} 
+          description="Collected this month" 
+          isLoading={isLoading} 
+          color="emerald"
+        />
+        <StatCard 
+          title="Monthly Expenses" 
+          value={currencyFormatter.format(stats?.monthlyExpenses || 0)} 
+          icon={TrendingDown} 
+          description="Spent this month" 
+          isLoading={isLoading} 
+          color="rose"
+        />
+        <StatCard 
+          title="Current Profit" 
+          value={currencyFormatter.format(profit)} 
+          icon={Activity} 
+          description="Monthly net balance" 
+          isLoading={isLoading} 
+          color={profit >= 0 ? "emerald" : "rose"}
+        />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
@@ -204,7 +241,9 @@ export default function Dashboard() {
               <CardDescription>Monthly Fee Collection vs. Expenses</CardDescription>
             </div>
             <Select value={selectedYear} onValueChange={setSelectedYear}>
-              <SelectTrigger className="w-[120px] h-9"><SelectValue placeholder="Year" /></SelectTrigger>
+              <SelectTrigger className="w-[120px] h-9">
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
               <SelectContent>
                 {academicYears.map(y => <SelectItem key={y.year_name} value={y.year_name}>{y.year_name}</SelectItem>)}
               </SelectContent>
@@ -216,7 +255,11 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} tickFormatter={yAxisFormatter} />
-                <Tooltip cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} contentStyle={{ background: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} formatter={(value) => currencyFormatter.format(value as number)} />
+                <Tooltip 
+                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} 
+                  contentStyle={{ background: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} 
+                  formatter={(value) => currencyFormatter.format(value as number)} 
+                />
                 <Legend iconType="circle" />
                 <Bar dataKey="income" fill="hsl(var(--primary))" name="Collections" radius={[4, 4, 0, 0]} barSize={24} />
                 <Bar dataKey="expenses" fill="#f43f5e" name="Expenses" radius={[4, 4, 0, 0]} barSize={24} />
@@ -234,8 +277,19 @@ export default function Dashboard() {
             <div className="h-[240px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5}>
-                    {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                  <Pie 
+                    data={pieData} 
+                    dataKey="value" 
+                    nameKey="name" 
+                    cx="50%" 
+                    cy="50%" 
+                    innerRadius={60} 
+                    outerRadius={80} 
+                    paddingAngle={5}
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
                   </Pie>
                   <Tooltip />
                   <Legend verticalAlign="bottom" height={36}/>
