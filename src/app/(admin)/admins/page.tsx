@@ -74,21 +74,10 @@ export default function AdminsManagementPage() {
 
   const fetchAdmins = async () => {
     setIsLoading(true);
-    // Since Next.js client-side can't list users easily without service role,
-    // we assume a simple 'admins' table is used to track them, 
-    // or we filter them if we had a profiles table. 
-    // For this implementation, we check users that aren't cashiers.
-    const { data: { users }, error } = await supabase.auth.admin.listUsers();
-    
-    if (error) {
-      // If client-side listing fails (permissions), we'd usually use an API route.
-      const response = await fetch('/api/admin/system');
-      const data = await response.json();
-      if (response.ok) setAdmins(data.admins);
-      else toast.error("Failed to fetch admin list.");
-    } else {
-      setAdmins(users.filter(u => u.email !== 'superadmin@gmail.com'));
-    }
+    const response = await fetch('/api/admin/system');
+    const data = await response.json();
+    if (response.ok) setAdmins(data.admins);
+    else toast.error("Failed to fetch admin list.");
     setIsLoading(false);
   };
 
