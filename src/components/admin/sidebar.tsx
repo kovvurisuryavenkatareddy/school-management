@@ -14,6 +14,7 @@ import {
   Package2,
   History,
   Coins,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -34,6 +35,7 @@ const allNavItems = [
   { href: "/class-management", icon: Library, label: "Class Management", roles: ['admin'] },
   { href: "/financials", icon: Coins, label: "Financials", roles: ['admin', 'cashier'] },
   { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['admin'] },
+  { href: "/settings", icon: Settings, label: "Settings", roles: ['admin'] },
 ];
 
 export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'admin' | 'cashier', isExpanded: boolean, cashierProfile: any }) {

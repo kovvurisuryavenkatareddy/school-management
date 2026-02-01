@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { BarChart, DollarSign, Receipt, TrendingDown, TrendingUp, Users, CreditCard, Activity } from "lucide-react";
 import {
   Card,
@@ -49,53 +49,57 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchInitialData = async () => {
       setIsLoading(true);
-      const currentMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+      try {
+        const currentMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
-      const [
-        invoiceRes,
-        collectionRes,
-        expensesRes,
-        yearsRes,
-        studentsRes,
-      ] = await Promise.all([
-        supabase.from("invoices").select("status"),
-        supabase.from("payments").select("amount").gte("created_at", currentMonthStart),
-        supabase.from("expenses").select("amount").gte("expense_date", currentMonthStart),
-        supabase.from("academic_years").select("year_name").order("year_name", { ascending: false }),
-        supabase.from("students").select("*", { count: "exact", head: true }),
-      ]);
+        const [
+          invoiceRes,
+          collectionRes,
+          expensesRes,
+          yearsRes,
+          studentsRes,
+        ] = await Promise.all([
+          supabase.from("invoices").select("status"),
+          supabase.from("payments").select("amount").gte("created_at", currentMonthStart),
+          supabase.from("expenses").select("amount").gte("expense_date", currentMonthStart),
+          supabase.from("academic_years").select("year_name").order("year_name", { ascending: false }),
+          supabase.from("students").select("*", { count: "exact", head: true }),
+        ]);
 
-      const invoiceData = invoiceRes.data || [];
-      const paidInvoices = invoiceData.filter(i => i.status === 'paid').length;
-      const pendingInvoices = invoiceData.filter(i => i.status === 'unpaid').length;
-      
-      const monthlyCollection = collectionRes.data?.reduce((sum, p) => sum + p.amount, 0) || 0;
-      const monthlyExpenses = expensesRes.data?.reduce((sum, e) => sum + e.amount, 0) || 0;
-      
-      setStats({
-        paidInvoices,
-        pendingInvoices,
-        totalInvoices: invoiceData.length,
-        monthlyCollection,
-        monthlyExpenses,
-        totalStudents: studentsRes.count || 0,
-      });
-
-      // Prepare Years for Dropdown - Always include current year
-      const yearSet = new Set<string>();
-      yearSet.add(new Date().getFullYear().toString());
-      
-      if (yearsRes.data) {
-        yearsRes.data.forEach(y => {
-          const matched = y.year_name.match(/\d{4}/);
-          if (matched) yearSet.add(matched[0]);
+        const invoiceData = invoiceRes.data || [];
+        const paidCount = invoiceData.filter(i => i.status === 'paid').length;
+        const pendingCount = invoiceData.filter(i => i.status === 'unpaid').length;
+        
+        const monthlyCollection = collectionRes.data?.reduce((sum, p) => sum + p.amount, 0) || 0;
+        const monthlyExpenses = expensesRes.data?.reduce((sum, e) => sum + e.amount, 0) || 0;
+        
+        setStats({
+          paidInvoices: paidCount,
+          pendingInvoices: pendingCount,
+          totalInvoices: invoiceData.length,
+          monthlyCollection,
+          monthlyExpenses,
+          totalStudents: studentsRes.count || 0,
         });
+
+        // Prepare Years for Dropdown - Always include current year
+        const yearSet = new Set<string>();
+        yearSet.add(new Date().getFullYear().toString());
+        
+        if (yearsRes.data) {
+          yearsRes.data.forEach(y => {
+            const matched = y.year_name.match(/\d{4}/);
+            if (matched) yearSet.add(matched[0]);
+          });
+        }
+        
+        const uniqueYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a)).map(y => ({ year_name: y }));
+        setAcademicYears(uniqueYears);
+      } catch (err) {
+        console.error("Error fetching dashboard stats:", err);
+      } finally {
+        setIsLoading(false);
       }
-      
-      const uniqueYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a)).map(y => ({ year_name: y }));
-      setAcademicYears(uniqueYears);
-      
-      setIsLoading(false);
     };
 
     fetchInitialData();
@@ -145,6 +149,17 @@ export default function Dashboard() {
 
     fetchBarChartData();
   }, [selectedYear]);
+
+  const pieData = useMemo(() => {
+    if (!stats) return [];
+    if (stats.totalInvoices === 0) return [{ name: 'No Invoices', value: 1 }];
+    return [
+      { name: 'Paid', value: stats.paidInvoices },
+      { name: 'Pending', value: stats.pendingInvoices }
+    ];
+  }, [stats]);
+
+  const COLORS = ['#3b82f6', '#f43f5e', '#e2e8f0'];
 
   const profit = (stats?.monthlyCollection || 0) - (stats?.monthlyExpenses || 0);
 
@@ -226,28 +241,28 @@ export default function Dashboard() {
             <CardDescription>Overall tracking of generated invoices</CardDescription>
           </CardHeader>
           <CardContent className="h-[350px] flex flex-col items-center justify-center">
-            <ResponsiveContainer width="100%" height="240px">
-              <PieChart>
-                <Pie 
-                  data={[
-                    { name: 'Paid', value: stats?.paidInvoices || 0 },
-                    { name: 'Pending', value: stats?.pendingInvoices || 0 }
-                  ]} 
-                  dataKey="value" 
-                  nameKey="name" 
-                  cx="50%" 
-                  cy="50%" 
-                  innerRadius={70} 
-                  outerRadius={90} 
-                  paddingAngle={5}
-                >
-                  <Cell fill="#3b82f6" />
-                  <Cell fill="#f43f5e" />
-                </Pie>
-                <Tooltip />
-                <Legend verticalAlign="bottom" height={36}/>
-              </PieChart>
-            </ResponsiveContainer>
+            <div className="h-[240px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie 
+                    data={pieData} 
+                    dataKey="value" 
+                    nameKey="name" 
+                    cx="50%" 
+                    cy="50%" 
+                    innerRadius={60} 
+                    outerRadius={80} 
+                    paddingAngle={5}
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend verticalAlign="bottom" height={36}/>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
             <div className="grid grid-cols-2 gap-8 w-full px-4 mt-4">
               <div className="text-center">
                 <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Total Invoices</p>
