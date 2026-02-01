@@ -15,6 +15,7 @@ import {
   History,
   Coins,
   Settings,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -25,20 +26,21 @@ import {
 } from "@/components/ui/tooltip";
 
 const allNavItems = [
-  { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard", roles: ['admin'] },
-  { href: "/students", icon: Users, label: "Students", roles: ['admin'] },
-  { href: "/fees", icon: Receipt, label: "Fee Structure", roles: ['admin'] },
-  { href: "/invoices", icon: FileText, label: "Invoices", roles: ['admin'] },
-  { href: "/cashiers", icon: UserCircle, label: "Cashiers", roles: ['admin'] },
-  { href: "/departments", icon: Building, label: "Departments", roles: ['admin'] },
-  { href: "/expenses", icon: TrendingUp, label: "Expenses", roles: ['admin', 'cashier'] },
-  { href: "/class-management", icon: Library, label: "Class Management", roles: ['admin'] },
-  { href: "/financials", icon: Coins, label: "Financials", roles: ['admin', 'cashier'] },
-  { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['admin'] },
-  { href: "/settings", icon: Settings, label: "Settings", roles: ['admin'] },
+  { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard", roles: ['superadmin', 'admin'] },
+  { href: "/students", icon: Users, label: "Students", roles: ['superadmin', 'admin'] },
+  { href: "/fees", icon: Receipt, label: "Fee Structure", roles: ['superadmin', 'admin'] },
+  { href: "/invoices", icon: FileText, label: "Invoices", roles: ['superadmin', 'admin'] },
+  { href: "/cashiers", icon: UserCircle, label: "Cashiers", roles: ['superadmin', 'admin'] },
+  { href: "/admins", icon: ShieldCheck, label: "Admins", roles: ['superadmin'] },
+  { href: "/departments", icon: Building, label: "Departments", roles: ['superadmin', 'admin'] },
+  { href: "/expenses", icon: TrendingUp, label: "Expenses", roles: ['superadmin', 'admin', 'cashier'] },
+  { href: "/class-management", icon: Library, label: "Class Management", roles: ['superadmin', 'admin'] },
+  { href: "/financials", icon: Coins, label: "Financials", roles: ['superadmin', 'admin', 'cashier'] },
+  { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['superadmin', 'admin'] },
+  { href: "/settings", icon: Settings, label: "Settings", roles: ['superadmin', 'admin'] },
 ];
 
-export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'admin' | 'cashier', isExpanded: boolean, cashierProfile: any }) {
+export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'superadmin' | 'admin' | 'cashier', isExpanded: boolean, cashierProfile: any }) {
   const pathname = usePathname();
   
   const navItems = allNavItems.filter(item => {
@@ -49,8 +51,8 @@ export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'a
     return true;
   });
 
-  const portalTitle = userRole === 'admin' ? 'Admin Portal' : 'Cashier Portal';
-  const homeLink = userRole === 'admin' ? '/dashboard' : '/financials';
+  const portalTitle = userRole === 'superadmin' ? 'Super Admin' : (userRole === 'admin' ? 'Admin Portal' : 'Cashier Portal');
+  const homeLink = (userRole === 'superadmin' || userRole === 'admin') ? '/dashboard' : '/financials';
 
   return (
     <aside className={cn(
@@ -103,7 +105,7 @@ export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'a
         </div>
         <div className="mt-auto border-t p-4">
           <p className="text-center text-[10px] text-muted-foreground font-medium uppercase tracking-widest">
-            {isExpanded ? `© ${new Date().getFullYear()} Sanju Animations` : "SA"}
+            {isExpanded ? `© ${new Date().getFullYear()} School CMS` : "CMS"}
           </p>
         </div>
       </div>

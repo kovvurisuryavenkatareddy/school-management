@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { toast } from "sonner";
-import { Loader2, Save, Building2, MapPin, Upload, X } from "lucide-react";
+import { Loader2, Save, Building2, MapPin, Upload, X, ShieldAlert, Power } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -27,11 +27,13 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 
 const settingsSchema = z.object({
   school_name: z.string().min(2, "Name must be at least 2 characters"),
   address: z.string().min(5, "Address must be at least 5 characters"),
   logo_url: z.string().optional(),
+  is_maintenance_mode: z.boolean().default(false),
 });
 
 export default function SettingsPage() {
@@ -39,6 +41,7 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<z.infer<typeof settingsSchema>>({
@@ -47,11 +50,15 @@ export default function SettingsPage() {
       school_name: "",
       address: "",
       logo_url: "",
+      is_maintenance_mode: false,
     },
   });
 
   useEffect(() => {
     const fetchSettings = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsSuperAdmin(user?.email === 'superadmin@gmail.com');
+
       const { data, error } = await supabase
         .from("school_settings")
         .select("*")
@@ -65,6 +72,7 @@ export default function SettingsPage() {
           school_name: data.school_name,
           address: data.address,
           logo_url: data.logo_url || "",
+          is_maintenance_mode: data.is_maintenance_mode || false,
         });
         if (data.logo_url) setLogoPreview(data.logo_url);
       }
@@ -77,7 +85,6 @@ export default function SettingsPage() {
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (file.size > 2 * 1024 * 1024) {
       toast.error("Logo file size should be less than 2MB");
       return;
@@ -140,7 +147,56 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto w-full">
+    <div className="max-w-2xl mx-auto w-full space-y-6">
+      {isSuperAdmin && (
+        <Card className="border-amber-200 bg-amber-50/30 dark:bg-amber-950/10 dark:border-amber-900/50">
+          <CardHeader>
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500">
+              <ShieldAlert className="h-5 w-5" />
+              <CardTitle className="text-lg">System-wide Controls</CardTitle>
+            </div>
+            <CardDescription>
+              Emergency actions only available to the Super Administrator.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="is_maintenance_mode"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-2xl border bg-background p-4 shadow-sm">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base flex items-center gap-2">
+                          <Power className={cn("h-4 w-4", field.value ? "text-rose-600" : "text-emerald-600")} />
+                          Maintenance Mode
+                        </FormLabel>
+                        <FormDescription>
+                          Stop website access for all Admins and Cashiers. Only you can log in.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          className="data-[state=checked]:bg-rose-600"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <div className="flex justify-end">
+                   <Button type="submit" disabled={isSaving} variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-100">
+                     Update System State
+                   </Button>
+                </div>
+              </form>
+            </Form>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl font-ubuntu">Organization Settings</CardTitle>
@@ -153,7 +209,7 @@ export default function SettingsPage() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               
               <div className="flex flex-col items-center justify-center space-y-4 pb-4 border-b">
-                <FormLabel className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">College Logo (1:1 Ratio Recommended)</FormLabel>
+                <FormLabel className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">College Logo</FormLabel>
                 <div className="relative group">
                   <div className="h-32 w-32 rounded-xl border-2 border-dashed border-muted-foreground/25 flex items-center justify-center bg-muted/50 overflow-hidden">
                     {logoPreview ? (
@@ -190,9 +246,6 @@ export default function SettingsPage() {
                 >
                   {logoPreview ? "Change Logo" : "Upload Logo"}
                 </Button>
-                <p className="text-[10px] text-muted-foreground italic text-center max-w-[200px]">
-                  Use a square image for best results on printed receipts.
-                </p>
               </div>
 
               <FormField
