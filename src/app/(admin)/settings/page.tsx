@@ -34,7 +34,7 @@ const settingsSchema = z.object({
   school_name: z.string().min(2, "Name must be at least 2 characters"),
   address: z.string().min(5, "Address must be at least 5 characters"),
   logo_url: z.string().optional(),
-  is_maintenance_mode: z.boolean().default(false),
+  is_maintenance_mode: z.boolean(),
 });
 
 export default function SettingsPage() {

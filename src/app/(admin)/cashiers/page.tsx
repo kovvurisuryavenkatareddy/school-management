@@ -79,8 +79,8 @@ const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   phone: z.string().optional(),
-  has_discount_permission: z.boolean().default(false),
-  has_expenses_permission: z.boolean().default(false),
+  has_discount_permission: z.boolean(),
+  has_expenses_permission: z.boolean(),
   password: z.string().optional(),
 });
 
@@ -310,7 +310,7 @@ export default function CashiersPage() {
                         <DropdownMenuTrigger asChild><Button aria-haspopup="true" size="icon" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem onSelect={() => { setEditingCashier(cashier); form.reset(cashier); setDialogOpen(true); }}><Pencil className="mr-2 h-4 w-4" />Edit Profile</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => { setEditingCashier(cashier); form.reset({ name: cashier.name, email: cashier.email ?? "", phone: cashier.phone ?? "", has_discount_permission: cashier.has_discount_permission, has_expenses_permission: cashier.has_expenses_permission, password: "" }); setDialogOpen(true); }}><Pencil className="mr-2 h-4 w-4" />Edit Profile</DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => { setCashierForPassword(cashier); setPasswordDialogOpen(true); }}><KeyRound className="mr-2 h-4 w-4" />Change Password</DropdownMenuItem>
                           <DropdownMenuItem className="text-red-600" onSelect={() => { setItemsToDelete([cashier.id]); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete Account</DropdownMenuItem>
                         </DropdownMenuContent>

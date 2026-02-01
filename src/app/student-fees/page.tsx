@@ -20,9 +20,7 @@ import {
   StudentDetails,
   StudentListItem,
   StudyingYear,
-  FeeSummaryData,
   Payment,
-  FIXED_TERMS,
 } from "@/types";
 import { FeeSummaryTable } from "@/components/fee-collection/FeeSummaryTable";
 import { StudentDetailsCard } from "@/components/fee-collection/StudentDetailsCard";
@@ -121,69 +119,6 @@ function StudentFeesPageContent() {
     );
   }, [students, searchText]);
 
-  const feeSummaryData: FeeSummaryData = useMemo(() => {
-    if (!selectedStudent) return {};
-
-    const summary: FeeSummaryData = {};
-
-    // Initialize summary structure with all years, fee types, and terms
-    Object.keys(selectedStudent.fee_details).forEach(year => {
-      summary[year] = {};
-      const feeItemsForYear = selectedStudent.fee_details[year] || [];
-      
-      // Get all unique fee types for this year across all terms
-      const uniqueFeeTypesInYear = Array.from(new Set(feeItemsForYear.map(item => item.name)));
-
-      uniqueFeeTypesInYear.forEach(feeType => {
-        summary[year][feeType] = {};
-        FIXED_TERMS.forEach(term => {
-          summary[year][feeType][term.name] = {
-            total: 0,
-            paid: 0,
-            concession: 0,
-            balance: 0,
-          };
-        });
-      });
-    });
-
-    // Populate total and concession from fee_details
-    Object.entries(selectedStudent.fee_details).forEach(([year, feeItems]) => {
-      feeItems.forEach(item => {
-        if (summary[year]?.[item.name]?.[item.term_name]) {
-          summary[year][item.name][item.term_name].total = item.amount;
-          summary[year][item.name][item.term_name].concession = item.concession;
-        }
-      });
-    });
-
-    // Populate paid amounts from payments
-    studentPayments.forEach(payment => {
-      const parts = payment.fee_type.split(' - ');
-      if (parts.length === 3) {
-        const year = parts[0].trim();
-        const term = parts[1].trim();
-        const feeType = parts[2].trim();
-        if (summary[year]?.[feeType]?.[term]) {
-          summary[year][feeType][term].paid += payment.amount;
-        }
-      }
-    });
-
-    // Calculate balances
-    Object.keys(summary).forEach(year => {
-      Object.keys(summary[year]).forEach(feeType => {
-        Object.keys(summary[year][feeType]).forEach(term => {
-          const termData = summary[year][feeType][term];
-          termData.balance = Math.max(0, termData.total - termData.concession - termData.paid);
-        });
-      });
-    });
-
-    return summary;
-  }, [selectedStudent, studentPayments]);
-
-
   const handlePayClick = (year: string, term: string) => {
     // This is read-only, so this won't be called, but we need to match the signature
     // If needed in the future, we can implement payment collection here
@@ -261,10 +196,12 @@ function StudentFeesPageContent() {
             <StudentDetailsCard student={selectedStudent} />
             
             <FeeSummaryTable
-              data={feeSummaryData}
-              onPay={handlePayClick}
-              isReadOnly={true} // This page is read-only for public access
               student={selectedStudent}
+              payments={studentPayments}
+              onPay={handlePayClick}
+              onEditConcession={() => {}}
+              isReadOnly={true}
+              cashierProfile={null}
             />
 
             <OutstandingInvoices 

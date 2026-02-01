@@ -46,20 +46,20 @@ import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const allNavItems = [
-    { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard", roles: ['admin'] },
-    { href: "/students", icon: Users, label: "Students", roles: ['admin'] },
-    { href: "/fees", icon: Receipt, label: "Fee Structure", roles: ['admin'] },
-    { href: "/invoices", icon: FileText, label: "Invoices", roles: ['admin'] },
-    { href: "/cashiers", icon: UserCircle, label: "Cashiers", roles: ['admin'] },
-    { href: "/departments", icon: Building, label: "Departments", roles: ['admin'] },
-    { href: "/expenses", icon: TrendingUp, label: "Expenses", roles: ['admin', 'cashier'] },
-    { href: "/class-management", icon: Library, label: "Class Management", roles: ['admin'] },
-    { href: "/financials", icon: Coins, label: "Financials", roles: ['admin', 'cashier'] },
-    { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['admin'] },
-    { href: "/settings", icon: Settings, label: "Settings", roles: ['admin'] },
+    { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard", roles: ['superadmin', 'admin'] },
+    { href: "/students", icon: Users, label: "Students", roles: ['superadmin', 'admin'] },
+    { href: "/fees", icon: Receipt, label: "Fee Structure", roles: ['superadmin', 'admin'] },
+    { href: "/invoices", icon: FileText, label: "Invoices", roles: ['superadmin', 'admin'] },
+    { href: "/cashiers", icon: UserCircle, label: "Cashiers", roles: ['superadmin', 'admin'] },
+    { href: "/departments", icon: Building, label: "Departments", roles: ['superadmin', 'admin'] },
+    { href: "/expenses", icon: TrendingUp, label: "Expenses", roles: ['superadmin', 'admin', 'cashier'] },
+    { href: "/class-management", icon: Library, label: "Class Management", roles: ['superadmin', 'admin'] },
+    { href: "/financials", icon: Coins, label: "Financials", roles: ['superadmin', 'admin', 'cashier'] },
+    { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['superadmin', 'admin'] },
+    { href: "/settings", icon: Settings, label: "Settings", roles: ['superadmin', 'admin'] },
 ];
 
-export function Header({ userName, userRole, isSidebarExpanded, onToggleSidebar, cashierProfile }: { userName: string | null, userRole: 'admin' | 'cashier', isSidebarExpanded: boolean, onToggleSidebar: () => void, cashierProfile: any }) {
+export function Header({ userName, userRole, isSidebarExpanded, onToggleSidebar, cashierProfile }: { userName: string | null, userRole: 'superadmin' | 'admin' | 'cashier', isSidebarExpanded: boolean, onToggleSidebar: () => void, cashierProfile: any }) {
   const pathname = usePathname();
   const router = useRouter();
   
@@ -73,8 +73,8 @@ export function Header({ userName, userRole, isSidebarExpanded, onToggleSidebar,
 
   const pageItem = allNavItems.find(item => pathname.startsWith(item.href));
   const pageTitle = pageItem?.label || "Portal";
-  const portalTitle = userRole === 'admin' ? 'Admin Portal' : 'Cashier Portal';
-  const homeLink = userRole === 'admin' ? '/dashboard' : '/financials';
+  const portalTitle = userRole === 'cashier' ? 'Cashier Portal' : 'Admin Portal';
+  const homeLink = userRole === 'cashier' ? '/financials' : '/dashboard';
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
