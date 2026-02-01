@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { PlusCircle, MoreHorizontal, Pencil, Trash2, Sparkles, Loader2 } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Pencil, Trash2, Sparkles, Loader2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -81,8 +81,10 @@ const formSchema = z.object({
   has_discount_permission: z.boolean().default(false),
   has_expenses_permission: z.boolean().default(false),
   password: z.string().optional(),
-}).refine(data => {
-    return true;
+});
+
+const passwordSchema = z.object({
+  password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 const PAGE_SIZE = 10;
@@ -93,15 +95,22 @@ export default function CashiersPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [editingCashier, setEditingCashier] = useState<Cashier | null>(null);
+  const [cashierForPassword, setCashierForPassword] = useState<Cashier | null>(null);
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
   const [cashierToDelete, setCashierToDelete] = useState<Cashier | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
 
-  const form = useForm<z.input<typeof formSchema>>({
+  const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: { name: "", email: "", phone: "", has_discount_permission: false, has_expenses_permission: false, password: "" },
+  });
+
+  const passwordForm = useForm<z.infer<typeof passwordSchema>>({
+    resolver: zodResolver(passwordSchema),
+    defaultValues: { password: "" },
   });
 
   const fetchCashiers = async () => {
@@ -127,7 +136,7 @@ export default function CashiersPage() {
     fetchCashiers();
   }, [currentPage]);
 
-  const onSubmit = async (values: z.input<typeof formSchema>) => {
+  const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
     
     if (editingCashier) {
@@ -173,6 +182,30 @@ export default function CashiersPage() {
     setIsSubmitting(false);
   };
 
+  const onPasswordSubmit = async (values: z.infer<typeof passwordSchema>) => {
+    if (!cashierForPassword) return;
+    setIsSubmitting(true);
+
+    const response = await fetch('/api/cashiers', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: cashierForPassword.user_id,
+        password: values.password,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      toast.error(`Failed to update password: ${result.error || 'An unknown error occurred.'}`);
+    } else {
+      toast.success("Password reset successfully! The cashier must change it on next login.");
+      setPasswordDialogOpen(false);
+    }
+    setIsSubmitting(false);
+  };
+
   const handleDelete = async () => {
     if (!cashierToDelete || !cashierToDelete.user_id) return;
     
@@ -208,14 +241,20 @@ export default function CashiersPage() {
     setDialogOpen(true);
   };
 
-  const generateRandomPassword = () => {
+  const handlePasswordReset = (cashier: Cashier) => {
+    setCashierForPassword(cashier);
+    passwordForm.reset({ password: "" });
+    setPasswordDialogOpen(true);
+  };
+
+  const generateRandomPassword = (targetForm: any) => {
     const length = 12;
     const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
     let retVal = "";
     for (let i = 0, n = charset.length; i < length; ++i) {
       retVal += charset.charAt(Math.floor(Math.random() * n));
     }
-    form.setValue("password", retVal);
+    targetForm.setValue("password", retVal);
     toast.info("Random password generated and filled.");
   };
 
@@ -225,6 +264,13 @@ export default function CashiersPage() {
       form.reset({ name: "", email: "", phone: "", has_discount_permission: false, has_expenses_permission: false, password: "" });
     }
   }, [dialogOpen]);
+
+  useEffect(() => {
+    if (!passwordDialogOpen) {
+      setCashierForPassword(null);
+      passwordForm.reset({ password: "" });
+    }
+  }, [passwordDialogOpen]);
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
@@ -260,7 +306,7 @@ export default function CashiersPage() {
                         <FormItem><FormLabel>Password</FormLabel>
                           <div className="flex items-center gap-2">
                             <FormControl><Input type="text" {...field} /></FormControl>
-                            <Button type="button" variant="outline" size="icon" onClick={generateRandomPassword}><Sparkles className="h-4 w-4" /></Button>
+                            <Button type="button" variant="outline" size="icon" onClick={() => generateRandomPassword(form)}><Sparkles className="h-4 w-4" /></Button>
                           </div>
                         <FormMessage /></FormItem>
                       )} />
@@ -323,8 +369,9 @@ export default function CashiersPage() {
                         <DropdownMenuTrigger asChild><Button aria-haspopup="true" size="icon" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem onSelect={() => handleEdit(cashier)}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-600" onSelect={() => { setCashierToDelete(cashier); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handleEdit(cashier)}><Pencil className="mr-2 h-4 w-4" />Edit Profile</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handlePasswordReset(cashier)}><KeyRound className="mr-2 h-4 w-4" />Change Password</DropdownMenuItem>
+                          <DropdownMenuItem className="text-red-600" onSelect={() => { setCashierToDelete(cashier); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete Account</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -344,6 +391,37 @@ export default function CashiersPage() {
           />
         </CardContent>
       </Card>
+
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Reset Cashier Password</DialogTitle>
+            <DialogDescription>
+              Set a new temporary password for {cashierForPassword?.name}. They will be forced to change it when they next sign in.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...passwordForm}>
+            <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
+              <FormField control={passwordForm.control} name="password" render={({ field }) => (
+                <FormItem><FormLabel>New Password</FormLabel>
+                  <div className="flex items-center gap-2">
+                    <FormControl><Input type="text" {...field} placeholder="At least 8 characters" /></FormControl>
+                    <Button type="button" variant="outline" size="icon" onClick={() => generateRandomPassword(passwordForm)}><Sparkles className="h-4 w-4" /></Button>
+                  </div>
+                <FormMessage /></FormItem>
+              )} />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setPasswordDialogOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {isSubmitting ? "Updating..." : "Update Password"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={deleteAlertOpen} onOpenChange={setDeleteAlertOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

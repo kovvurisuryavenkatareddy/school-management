@@ -59,6 +59,37 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  try {
+    const { user_id, password } = await request.json();
+
+    if (!user_id || !password) {
+      return NextResponse.json({ error: "User ID and New Password are required." }, { status: 400 });
+    }
+
+    // 1. Update the password in Supabase Auth
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
+      user_id,
+      { password: password }
+    );
+
+    if (authError) throw authError;
+
+    // 2. Force password change on next login for security
+    const { error: dbError } = await supabaseAdmin
+      .from('cashiers')
+      .update({ password_change_required: true })
+      .eq('user_id', user_id);
+
+    if (dbError) throw dbError;
+
+    return NextResponse.json({ message: "Password updated successfully" }, { status: 200 });
+
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
 export async function DELETE(request: Request) {
   try {
     const { user_id } = await request.json();
