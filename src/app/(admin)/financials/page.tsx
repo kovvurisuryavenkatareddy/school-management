@@ -6,7 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { FeeCollectionView } from "@/components/financials/fee-collection-view";
 import { FeeRegisterView } from "@/components/financials/fee-register-view";
 import { FeePaidReportView } from "@/components/financials/fee-paid-report-view";
-import { Receipt, Table as TableIcon, ClipboardList } from "lucide-react";
+import { DaySheetView } from "@/components/financials/day-sheet-view";
+import { Receipt, Table as TableIcon, ClipboardList, CalendarDays } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 export default function FinancialsPage() {
@@ -41,7 +42,10 @@ export default function FinancialsPage() {
       </Card>
 
       <Tabs defaultValue="collection" className="space-y-6">
-        <TabsList className={isAdmin ? "grid w-full grid-cols-3 lg:w-[600px]" : "grid w-full grid-cols-2 lg:w-[400px]"}>
+        <TabsList className={cn(
+          "grid w-full lg:max-w-3xl",
+          isAdmin ? "grid-cols-4" : "grid-cols-2"
+        )}>
           <TabsTrigger value="collection" className="gap-2">
             <Receipt className="h-4 w-4" />
             <span className="hidden sm:inline">Fee Collection</span>
@@ -51,10 +55,16 @@ export default function FinancialsPage() {
             <span className="hidden sm:inline">Fee Register</span>
           </TabsTrigger>
           {isAdmin && (
-            <TabsTrigger value="report" className="gap-2">
-              <ClipboardList className="h-4 w-4" />
-              <span className="hidden sm:inline">Paid Report</span>
-            </TabsTrigger>
+            <>
+              <TabsTrigger value="daysheet" className="gap-2">
+                <CalendarDays className="h-4 w-4" />
+                <span className="hidden sm:inline">Day Sheet</span>
+              </TabsTrigger>
+              <TabsTrigger value="report" className="gap-2">
+                <ClipboardList className="h-4 w-4" />
+                <span className="hidden sm:inline">Paid Report</span>
+              </TabsTrigger>
+            </>
           )}
         </TabsList>
 
@@ -67,11 +77,20 @@ export default function FinancialsPage() {
         </TabsContent>
 
         {isAdmin && (
-          <TabsContent value="report">
-            <FeePaidReportView />
-          </TabsContent>
+          <>
+            <TabsContent value="daysheet">
+              <DaySheetView />
+            </TabsContent>
+            <TabsContent value="report">
+              <FeePaidReportView />
+            </TabsContent>
+          </>
         )}
       </Tabs>
     </div>
   );
+}
+
+function cn(...inputs: any[]) {
+  return inputs.filter(Boolean).join(" ");
 }

@@ -39,8 +39,6 @@ type Stats = {
   totalStudents: number;
 };
 
-type BreakdownData = { name: string; value: number }[];
-
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [barChartData, setBarChartData] = useState<any[]>([]);
@@ -51,43 +49,55 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchInitialData = async () => {
       setIsLoading(true);
-      const currentMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
       const [
-        invoiceRes,
+        totalInvoicesRes,
+        paidInvoicesRes,
         collectionRes,
         expensesRes,
         yearsRes,
         studentsRes,
       ] = await Promise.all([
-        supabase.from("invoices").select("status", { count: "exact" }),
+        supabase.from("invoices").select("*", { count: "exact", head: true }),
+        supabase.from("invoices").select("*", { count: "exact", head: true }).eq('status', 'paid'),
         supabase.from("payments").select("amount").gte("created_at", currentMonthStart),
-        supabase.from("expenses").select("amount").gte("expense_date", currentMonthStart),
+        supabase.from("expenses").select("amount").gte("expense_date", currentMonthStart.split('T')[0]),
         supabase.from("academic_years").select("year_name").order("year_name", { ascending: false }),
         supabase.from("students").select("*", { count: "exact", head: true }),
       ]);
 
-      const paidInvoices = invoiceRes.data?.filter(i => i.status === 'paid').length || 0;
-      const pendingInvoices = (invoiceRes.count || 0) - paidInvoices;
+      const totalInvoices = totalInvoicesRes.count || 0;
+      const paidInvoices = paidInvoicesRes.count || 0;
+      const pendingInvoices = totalInvoices - paidInvoices;
+      
       const monthlyCollection = collectionRes.data?.reduce((sum, p) => sum + p.amount, 0) || 0;
       const monthlyExpenses = expensesRes.data?.reduce((sum, e) => sum + e.amount, 0) || 0;
       
       setStats({
         paidInvoices,
         pendingInvoices,
-        totalInvoices: invoiceRes.count || 0,
+        totalInvoices,
         monthlyCollection,
         monthlyExpenses,
         totalStudents: studentsRes.count || 0,
       });
 
+      const currentYearStr = now.getFullYear().toString();
+      const yearSet = new Set([currentYearStr]);
       if (yearsRes.data) {
-        const yearSet = new Set(yearsRes.data.map(y => y.year_name.substring(0, 4)));
-        const uniqueYears = Array.from(yearSet).map(y => ({ year_name: y }));
-        setAcademicYears(uniqueYears);
-        if (!uniqueYears.some(y => y.year_name === selectedYear)) {
-          setSelectedYear(uniqueYears[0]?.year_name || new Date().getFullYear().toString());
-        }
+        yearsRes.data.forEach(y => {
+          const yParts = y.year_name.split('-');
+          if (yParts[0]) yearSet.add(yParts[0]);
+        });
+      }
+      
+      const uniqueYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a)).map(y => ({ year_name: y }));
+      setAcademicYears(uniqueYears);
+      
+      if (!yearSet.has(selectedYear)) {
+        setSelectedYear(uniqueYears[0]?.year_name || currentYearStr);
       }
 
       setIsLoading(false);
@@ -113,26 +123,22 @@ export default function Dashboard() {
         expenses: 0,
       }));
 
-      // Map payments to chart data
       if (paymentsRes.data) {
         paymentsRes.data.forEach((p: any) => {
-          // p.month is 'YYYY-MM-DD'
           const date = new Date(p.month);
           const monthIndex = date.getUTCMonth();
           if (monthIndex >= 0 && monthIndex < 12) {
-            monthData[monthIndex].income = p.total;
+            monthData[monthIndex].income = Number(p.total);
           }
         });
       }
 
-      // Map expenses to chart data
       if (expensesRes.data) {
         expensesRes.data.forEach((e: any) => {
-          // e.month is 'YYYY-MM-DD'
           const date = new Date(e.month);
           const monthIndex = date.getUTCMonth();
           if (monthIndex >= 0 && monthIndex < 12) {
-            monthData[monthIndex].expenses = e.total;
+            monthData[monthIndex].expenses = Number(e.total);
           }
         });
       }
@@ -207,7 +213,7 @@ export default function Dashboard() {
                 <Tooltip 
                   cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} 
                   contentStyle={{ background: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} 
-                  formatter={(value) => currencyFormatter.format(value as number)} 
+                  formatter={(value) => currencyFormatter.format(Number(value))} 
                 />
                 <Legend iconType="circle" />
                 <Bar dataKey="income" fill="hsl(var(--primary))" name="Collections" radius={[4, 4, 0, 0]} barSize={24} />
@@ -223,40 +229,49 @@ export default function Dashboard() {
             <CardDescription>Overall tracking of generated invoices</CardDescription>
           </CardHeader>
           <CardContent className="h-[350px] flex flex-col items-center justify-center">
-            <ResponsiveContainer width="100%" height="240px">
-              <PieChart>
-                <Pie 
-                  data={[
-                    { name: 'Paid', value: stats?.paidInvoices || 0 },
-                    { name: 'Pending', value: stats?.pendingInvoices || 0 }
-                  ]} 
-                  dataKey="value" 
-                  nameKey="name" 
-                  cx="50%" 
-                  cy="50%" 
-                  innerRadius={70} 
-                  outerRadius={90} 
-                  paddingAngle={5}
-                >
-                  <Cell fill="#3b82f6" />
-                  <Cell fill="#f43f5e" />
-                </Pie>
-                <Tooltip />
-                <Legend verticalAlign="bottom" height={36}/>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="grid grid-cols-2 gap-8 w-full px-4 mt-4">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Total Invoices</p>
-                <p className="text-2xl font-bold">{stats?.totalInvoices}</p>
+            {isLoading ? (
+              <div className="flex flex-col items-center gap-4">
+                <Skeleton className="h-40 w-40 rounded-full" />
+                <Skeleton className="h-10 w-40" />
               </div>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Pending Rate</p>
-                <p className="text-2xl font-bold text-rose-600">
-                  {stats?.totalInvoices ? Math.round((stats.pendingInvoices / stats.totalInvoices) * 100) : 0}%
-                </p>
-              </div>
-            </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie 
+                      data={[
+                        { name: 'Paid', value: stats?.paidInvoices || 0 },
+                        { name: 'Pending', value: stats?.pendingInvoices || 0 }
+                      ]} 
+                      dataKey="value" 
+                      nameKey="name" 
+                      cx="50%" 
+                      cy="50%" 
+                      innerRadius={70} 
+                      outerRadius={90} 
+                      paddingAngle={5}
+                    >
+                      <Cell fill="hsl(var(--primary))" />
+                      <Cell fill="#f43f5e" />
+                    </Pie>
+                    <Tooltip formatter={(value) => `${value} Invoices`} />
+                    <Legend verticalAlign="bottom" height={36}/>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="grid grid-cols-2 gap-8 w-full px-4 mt-4">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Total Invoices</p>
+                    <p className="text-2xl font-bold">{stats?.totalInvoices}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Pending Rate</p>
+                    <p className="text-2xl font-bold text-rose-600">
+                      {stats?.totalInvoices ? Math.round((stats.pendingInvoices / stats.totalInvoices) * 100) : 0}%
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
