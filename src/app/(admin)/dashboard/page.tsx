@@ -39,8 +39,6 @@ type Stats = {
   totalStudents: number;
 };
 
-type BreakdownData = { name: string; value: number }[];
-
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [barChartData, setBarChartData] = useState<any[]>([]);
@@ -60,36 +58,43 @@ export default function Dashboard() {
         yearsRes,
         studentsRes,
       ] = await Promise.all([
-        supabase.from("invoices").select("status", { count: "exact" }),
+        supabase.from("invoices").select("status"),
         supabase.from("payments").select("amount").gte("created_at", currentMonthStart),
         supabase.from("expenses").select("amount").gte("expense_date", currentMonthStart),
         supabase.from("academic_years").select("year_name").order("year_name", { ascending: false }),
         supabase.from("students").select("*", { count: "exact", head: true }),
       ]);
 
-      const paidInvoices = invoiceRes.data?.filter(i => i.status === 'paid').length || 0;
-      const pendingInvoices = (invoiceRes.count || 0) - paidInvoices;
+      const invoiceData = invoiceRes.data || [];
+      const paidInvoices = invoiceData.filter(i => i.status === 'paid').length;
+      const pendingInvoices = invoiceData.filter(i => i.status === 'unpaid').length;
+      
       const monthlyCollection = collectionRes.data?.reduce((sum, p) => sum + p.amount, 0) || 0;
       const monthlyExpenses = expensesRes.data?.reduce((sum, e) => sum + e.amount, 0) || 0;
       
       setStats({
         paidInvoices,
         pendingInvoices,
-        totalInvoices: invoiceRes.count || 0,
+        totalInvoices: invoiceData.length,
         monthlyCollection,
         monthlyExpenses,
         totalStudents: studentsRes.count || 0,
       });
 
+      // Prepare Years for Dropdown - Always include current year
+      const yearSet = new Set<string>();
+      yearSet.add(new Date().getFullYear().toString());
+      
       if (yearsRes.data) {
-        const yearSet = new Set(yearsRes.data.map(y => y.year_name.substring(0, 4)));
-        const uniqueYears = Array.from(yearSet).map(y => ({ year_name: y }));
-        setAcademicYears(uniqueYears);
-        if (!uniqueYears.some(y => y.year_name === selectedYear)) {
-          setSelectedYear(uniqueYears[0]?.year_name || new Date().getFullYear().toString());
-        }
+        yearsRes.data.forEach(y => {
+          const matched = y.year_name.match(/\d{4}/);
+          if (matched) yearSet.add(matched[0]);
+        });
       }
-
+      
+      const uniqueYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a)).map(y => ({ year_name: y }));
+      setAcademicYears(uniqueYears);
+      
       setIsLoading(false);
     };
 
@@ -100,10 +105,10 @@ export default function Dashboard() {
     const fetchBarChartData = async () => {
       if (!selectedYear) return;
 
-      const year = parseInt(selectedYear);
+      const yearNum = parseInt(selectedYear);
       const [paymentsRes, expensesRes] = await Promise.all([
-        supabase.rpc('get_monthly_payments', { year_in: year }),
-        supabase.rpc('get_monthly_expenses', { year_in: year }),
+        supabase.rpc('get_monthly_payments', { year_in: yearNum }),
+        supabase.rpc('get_monthly_expenses', { year_in: yearNum }),
       ]);
 
       const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -116,11 +121,10 @@ export default function Dashboard() {
       // Map payments to chart data
       if (paymentsRes.data) {
         paymentsRes.data.forEach((p: any) => {
-          // p.month is 'YYYY-MM-DD'
           const date = new Date(p.month);
           const monthIndex = date.getUTCMonth();
           if (monthIndex >= 0 && monthIndex < 12) {
-            monthData[monthIndex].income = p.total;
+            monthData[monthIndex].income = Number(p.total);
           }
         });
       }
@@ -128,11 +132,10 @@ export default function Dashboard() {
       // Map expenses to chart data
       if (expensesRes.data) {
         expensesRes.data.forEach((e: any) => {
-          // e.month is 'YYYY-MM-DD'
           const date = new Date(e.month);
           const monthIndex = date.getUTCMonth();
           if (monthIndex >= 0 && monthIndex < 12) {
-            monthData[monthIndex].expenses = e.total;
+            monthData[monthIndex].expenses = Number(e.total);
           }
         });
       }
@@ -248,7 +251,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 gap-8 w-full px-4 mt-4">
               <div className="text-center">
                 <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Total Invoices</p>
-                <p className="text-2xl font-bold">{stats?.totalInvoices}</p>
+                <p className="text-2xl font-bold">{stats?.totalInvoices || 0}</p>
               </div>
               <div className="text-center">
                 <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Pending Rate</p>
