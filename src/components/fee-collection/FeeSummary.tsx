@@ -22,8 +22,8 @@ export function FeeSummary({ studentRecords, payments, cashierProfile, onSuccess
   const [editConcessionDialogOpen, setEditConcessionDialogOpen] = useState(false);
   const [initialContext, setInitialContext] = useState<{ year: string, term: string } | null>(null);
 
-  const handlePrint = (student: StudentDetails, payment: Payment) => {
-    const receiptHtml = generateReceiptHtml(student, payment, cashierProfile?.name || null);
+  const handlePrint = async (student: StudentDetails, payment: Payment) => {
+    const receiptHtml = await generateReceiptHtml(student, payment, cashierProfile?.name || null);
     const printWindow = window.open('', '_blank', 'height=800,width=800');
     if (printWindow) {
       printWindow.document.write(receiptHtml);

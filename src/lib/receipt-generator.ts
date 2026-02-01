@@ -1,6 +1,20 @@
 import { Payment, StudentDetails } from "@/types";
+import { supabase } from "@/integrations/supabase/client";
 
-export function generateReceiptHtml(student: StudentDetails, payment: Payment, cashierName: string | null): string {
+/**
+ * Fetches organization settings and generates receipt HTML.
+ */
+export async function generateReceiptHtml(student: StudentDetails, payment: Payment, cashierName: string | null): Promise<string> {
+  // Fetch current school settings
+  const { data: settings } = await supabase
+    .from("school_settings")
+    .select("*")
+    .single();
+
+  const schoolName = settings?.school_name || "IDEAL COLLEGE OF ENGINEERING";
+  const address = settings?.address || "Vidyut Nagar kakinada - 533308";
+  const logoUrl = settings?.logo_url || "";
+
   const paymentDate = new Date(payment.created_at).toLocaleDateString('en-IN', {
     day: '2-digit',
     month: '2-digit',
@@ -23,10 +37,12 @@ export function generateReceiptHtml(student: StudentDetails, payment: Payment, c
       <div class="receipt-container">
         <div class="receipt-title">${title}</div>
         <header>
-          <div class="logo-placeholder"></div>
+          <div class="logo-wrapper">
+            ${logoUrl ? `<img src="${logoUrl}" alt="Logo" class="school-logo" />` : '<div class="logo-placeholder"></div>'}
+          </div>
           <div class="header-text">
-            <h1>IDEAL COLLEGE OF ENGINEERING</h1>
-            <p>Vidyut Nagar kakinada - 533308</p>
+            <h1>${schoolName}</h1>
+            <p>${address}</p>
           </div>
         </header>
         <section class="main-content">
@@ -116,7 +132,9 @@ export function generateReceiptHtml(student: StudentDetails, payment: Payment, c
         }
         .receipt-title { text-align: center; font-size: 16px; font-weight: bold; margin-bottom: 8px; }
         header { display: flex; align-items: center; padding-bottom: 8px; border-bottom: 2px solid #000; }
-        .logo-placeholder { width: 60px; height: 60px; border: 1px solid #ccc; margin-right: 16px; flex-shrink: 0; }
+        .logo-wrapper { width: 60px; height: 60px; margin-right: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+        .school-logo { max-width: 100%; max-height: 100%; object-fit: contain; }
+        .logo-placeholder { width: 100%; height: 100%; border: 1px solid #ccc; }
         .header-text { flex-grow: 1; text-align: center; }
         .header-text h1 { font-size: 18px; font-weight: bold; margin: 0; }
         .header-text p { margin: 0; font-size: 11px; }

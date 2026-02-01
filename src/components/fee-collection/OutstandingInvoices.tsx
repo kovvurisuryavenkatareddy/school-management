@@ -28,8 +28,10 @@ export function OutstandingInvoices({ invoices, studentRecords, cashierProfile, 
     setDialogOpen(true);
   };
 
-  const handlePrint = (student: StudentDetails, payment: Payment) => {
-    const receiptHtml = generateReceiptHtml(student, payment, cashierProfile?.name || null);
+  const handlePrint = async (student: StudentDetails, payment: Payment) => {
+    const toastId = toast.loading("Preparing receipt...");
+    const receiptHtml = await generateReceiptHtml(student, payment, cashierProfile?.name || null);
+    
     const printWindow = window.open('', '_blank', 'height=800,width=800');
     if (printWindow) {
       printWindow.document.write(receiptHtml);
@@ -38,9 +40,10 @@ export function OutstandingInvoices({ invoices, studentRecords, cashierProfile, 
       setTimeout(() => {
         printWindow.print();
         printWindow.close();
+        toast.dismiss(toastId);
       }, 250);
     } else {
-      toast.error("Could not open print window. Please disable your pop-up blocker.");
+      toast.error("Could not open print window. Please disable your pop-up blocker.", { id: toastId });
     }
   };
 
