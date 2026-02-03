@@ -28,22 +28,44 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, FileSpreadsheet } from "lucide-react";
+import { Loader2, Search, FileSpreadsheet, ChevronDown, ChevronRight } from "lucide-react";
 import { FIXED_TERMS, AcademicYear, ClassGroup } from "@/types";
 import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
 import Papa from "papaparse";
+import { cn } from "@/lib/utils";
+
+type TermData = {
+  termName: string;
+  expected: number;
+  paid: number;
+  pending: number;
+  status: 'Paid' | 'Pending' | 'Partial';
+};
+
+type YearData = {
+  yearName: string;
+  terms: TermData[];
+};
+
+type StudentRegisterRecord = {
+  id: string;
+  roll_number: string;
+  name: string;
+  class: string;
+  section: string;
+  years: YearData[];
+};
 
 export function FeeRegisterView() {
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   
-  const [selectedYear, setSelectedYear] = useState<string>("all");
+  const [selectedYearFilter, setSelectedYearFilter] = useState<string>("all");
   const [selectedClass, setSelectedClass] = useState<string>("all");
-  const [selectedTerm, setSelectedTerm] = useState<string>("all");
   
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [registerData, setRegisterData] = useState<any[]>([]);
+  const [registerData, setRegisterData] = useState<StudentRegisterRecord[]>([]);
 
   useEffect(() => {
     const fetchFilters = async () => {
@@ -63,7 +85,7 @@ export function FeeRegisterView() {
     setIsLoading(true);
     try {
       let studentQuery = supabase.from('students').select('*, student_types(name)');
-      if (selectedYear !== "all") studentQuery = studentQuery.eq('academic_year_id', selectedYear);
+      if (selectedYearFilter !== "all") studentQuery = studentQuery.eq('academic_year_id', selectedYearFilter);
       if (selectedClass !== "all") studentQuery = studentQuery.eq('class', selectedClass);
 
       const { data: students, error: studentError } = await studentQuery;
@@ -71,11 +93,12 @@ export function FeeRegisterView() {
 
       if (!students || students.length === 0) {
         setRegisterData([]);
-        toast.info("No students found.");
+        toast.info("No students found matching these filters.");
         setIsLoading(false);
         return;
       }
 
+      // Fetch all payments for these students to calculate term-wise totals
       const { data: payments, error: paymentError } = await supabase
         .from('payments')
         .select('*')
@@ -83,27 +106,50 @@ export function FeeRegisterView() {
 
       if (paymentError) throw paymentError;
 
-      const processed = students.map(student => {
+      const processed: StudentRegisterRecord[] = students.map(student => {
         const normalizedFee = normalizeFeeStructure(student.fee_details);
-        const yearKey = student.studying_year;
-        const feeItems = normalizedFee[yearKey] || [];
         
-        let expectedAmount = 0;
-        let totalPaid = 0;
+        // We process all years defined in the student's fee structure
+        const years: YearData[] = Object.entries(normalizedFee).map(([yearName, feeItems]) => {
+          const terms: TermData[] = FIXED_TERMS.map(term => {
+            const termItem = feeItems.find(i => i.term_name === term.name);
+            const expected = termItem?.amount || 0;
+            
+            // Filter payments for this specific student, year, and term
+            const paid = (payments || [])
+              .filter(p => p.student_id === student.id && p.fee_type === `${yearName} - ${term.name}`)
+              .reduce((sum, p) => sum + p.amount, 0);
 
-        if (selectedTerm === "all") {
-          expectedAmount = feeItems.filter(i => i.name.startsWith('Term')).reduce((sum, i) => sum + i.amount, 0);
-          totalPaid = (payments || []).filter(p => p.student_id === student.id && p.fee_type.startsWith(yearKey)).reduce((sum, p) => sum + p.amount, 0);
-        } else {
-          const termItem = feeItems.find(i => i.term_name === selectedTerm);
-          expectedAmount = termItem?.amount || 0;
-          totalPaid = (payments || []).filter(p => p.student_id === student.id && p.fee_type.includes(`${yearKey} - ${selectedTerm}`)).reduce((sum, p) => sum + p.amount, 0);
-        }
+            const pending = Math.max(0, expected - paid);
+            let status: 'Paid' | 'Pending' | 'Partial' = 'Pending';
+            
+            if (expected > 0) {
+              if (paid >= expected) status = 'Paid';
+              else if (paid > 0) status = 'Partial';
+            } else if (paid > 0) {
+              status = 'Paid'; // Overpaid or special case
+            } else {
+              status = 'Paid'; // Nothing expected, nothing paid
+            }
 
-        return { ...student, expected: expectedAmount, paid: totalPaid, status: expectedAmount === 0 || totalPaid >= expectedAmount ? 'Paid' : 'Pending' };
+            return { termName: term.name, expected, paid, pending, status };
+          });
+
+          return { yearName, terms };
+        });
+
+        return {
+          id: student.id,
+          roll_number: student.roll_number,
+          name: student.name,
+          class: student.class,
+          section: student.section,
+          years
+        };
       });
 
       setRegisterData(processed);
+      toast.success(`Loaded register for ${processed.length} students.`);
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -112,75 +158,159 @@ export function FeeRegisterView() {
   };
 
   const downloadCSV = () => {
-    const csv = Papa.unparse(registerData.map(s => ({
-      "Roll Number": s.roll_number, "Name": s.name, "Class": s.class, "Section": s.section,
-      "Year": s.studying_year, "Term": selectedTerm === "all" ? "All Terms" : selectedTerm,
-      "Expected": s.expected, "Paid": s.paid, "Status": s.status
-    })));
+    const rows: any[] = [];
+    
+    registerData.forEach(student => {
+      student.years.forEach(year => {
+        year.terms.forEach(term => {
+          rows.push({
+            "Roll Number": student.roll_number,
+            "Student Name": student.name,
+            "Class": `${student.class}-${student.section}`,
+            "Academic Year": year.yearName,
+            "Term": term.termName,
+            "Expected Amount": term.expected,
+            "Paid Amount": term.paid,
+            "Pending Amount": term.pending,
+            "Status": term.status
+          });
+        });
+      });
+    });
+
+    const csv = Papa.unparse(rows);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `Fee_Register.csv`;
+    link.download = `Fee_Register_Report_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'Paid': return <Badge className="bg-emerald-500 hover:bg-emerald-600">Paid</Badge>;
+      case 'Partial': return <Badge variant="outline" className="text-amber-600 border-amber-600 bg-amber-50">Partial</Badge>;
+      default: return <Badge variant="destructive">Pending</Badge>;
+    }
   };
 
   if (isInitialLoad) return <div className="flex items-center justify-center h-64"><Loader2 className="animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader><CardTitle>Fee Tracking Register</CardTitle></CardHeader>
+      <Card className="border-primary/10 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-xl font-ubuntu">Fee Tracking Register</CardTitle>
+          <CardDescription>Generate detailed term-wise reports for auditing and collection tracking.</CardDescription>
+        </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <div className="space-y-2">
-              <Label>Academic Year</Label>
-              <Select value={selectedYear} onValueChange={setSelectedYear}>
-                <SelectTrigger><SelectValue placeholder="All Years" /></SelectTrigger>
-                <SelectContent><SelectItem value="all">All Years</SelectItem>{academicYears.map(ay => <SelectItem key={ay.id} value={ay.id}>{ay.year_name}</SelectItem>)}</SelectContent>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Academic Year</Label>
+              <Select value={selectedYearFilter} onValueChange={setSelectedYearFilter}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="All Enrollment Years" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Years</SelectItem>
+                  {academicYears.map(ay => <SelectItem key={ay.id} value={ay.id}>{ay.year_name}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Class</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Class</Label>
               <Select value={selectedClass} onValueChange={setSelectedClass}>
-                <SelectTrigger><SelectValue placeholder="All Classes" /></SelectTrigger>
-                <SelectContent><SelectItem value="all">All Classes</SelectItem>{classes.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}</SelectContent>
+                <SelectTrigger className="h-10"><SelectValue placeholder="All Classes" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Classes</SelectItem>
+                  {classes.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Term</Label>
-              <Select value={selectedTerm} onValueChange={setSelectedTerm}>
-                <SelectTrigger><SelectValue placeholder="All Terms" /></SelectTrigger>
-                <SelectContent><SelectItem value="all">All Terms</SelectItem>{FIXED_TERMS.map(t => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <Button onClick={handleShowRegister} disabled={isLoading} className="gap-2">{isLoading ? <Loader2 className="animate-spin" /> : <Search className="h-4 w-4" />} Show Register</Button>
+            <Button onClick={handleShowRegister} disabled={isLoading} className="h-10 gap-2 font-bold shadow-md shadow-primary/10">
+              {isLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <Search className="h-4 w-4" />}
+              Generate Register
+            </Button>
           </div>
         </CardContent>
       </Card>
+
       {registerData.length > 0 && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg">Register Data</CardTitle>
-            <Button variant="outline" size="sm" onClick={downloadCSV} className="gap-2"><FileSpreadsheet className="h-4 w-4" /> Export CSV</Button>
+        <Card className="border-primary/10 shadow-lg overflow-hidden">
+          <CardHeader className="bg-muted/30 border-b flex flex-row items-center justify-between py-4">
+            <div>
+              <CardTitle className="text-lg">Audit Data</CardTitle>
+              <CardDescription>Found {registerData.length} students matching criteria.</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={downloadCSV} className="gap-2 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
+              <FileSpreadsheet className="h-4 w-4" />
+              Export to CSV
+            </Button>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader><TableRow><TableHead className="pl-6">Roll No</TableHead><TableHead>Name</TableHead><TableHead className="text-right">Expected</TableHead><TableHead className="text-right">Paid</TableHead><TableHead className="text-center">Status</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {registerData.map((s) => (
-                  <TableRow key={s.id}>
-                    <TableCell className="pl-6 font-medium">{s.roll_number}</TableCell>
-                    <TableCell>{s.name}</TableCell>
-                    <TableCell className="text-right">₹{s.expected.toLocaleString()}</TableCell>
-                    <TableCell className="text-right text-green-600">₹{s.paid.toLocaleString()}</TableCell>
-                    <TableCell className="text-center"><Badge variant={s.status === 'Paid' ? 'default' : 'destructive'} className={s.status === 'Paid' ? 'bg-green-500' : ''}>{s.status}</Badge></TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableHead className="pl-6 w-[250px]">Student Details</TableHead>
+                    <TableHead>Year / Term</TableHead>
+                    <TableHead className="text-right">Expected</TableHead>
+                    <TableHead className="text-right">Paid</TableHead>
+                    <TableHead className="text-right">Pending</TableHead>
+                    <TableHead className="text-center">Status</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {registerData.map((student) => (
+                    <React.Fragment key={student.id}>
+                      {student.years.map((year, yIdx) => (
+                        <React.Fragment key={`${student.id}-${year.yearName}`}>
+                          {year.terms.map((term, tIdx) => (
+                            <TableRow key={`${student.id}-${year.yearName}-${term.termName}`} className="hover:bg-muted/5">
+                              {yIdx === 0 && tIdx === 0 && (
+                                <TableCell rowSpan={student.years.length * 3} className="pl-6 align-top pt-4 border-r">
+                                  <div className="flex flex-col">
+                                    <span className="font-black text-sm text-primary">{student.name}</span>
+                                    <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tighter">Roll: {student.roll_number}</span>
+                                    <span className="text-[10px] mt-1 font-medium">{student.class}-{student.section}</span>
+                                  </div>
+                                </TableCell>
+                              )}
+                              <TableCell className="py-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{year.yearName}</span>
+                                  <span className="text-xs font-semibold">{term.termName}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right font-medium text-xs">₹{term.expected.toLocaleString()}</TableCell>
+                              <TableCell className="text-right text-emerald-600 font-bold text-xs">₹{term.paid.toLocaleString()}</TableCell>
+                              <TableCell className="text-right text-rose-500 font-bold text-xs">₹{term.pending.toLocaleString()}</TableCell>
+                              <TableCell className="text-center">
+                                {getStatusBadge(term.status)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {/* Year Separator Line */}
+                          <TableRow className="h-0 border-b-2 border-primary/5 bg-primary/5"><TableCell colSpan={5} className="p-0 h-1"></TableCell></TableRow>
+                        </React.Fragment>
+                      ))}
+                      {/* Student Separator Line */}
+                      <TableRow className="h-1 bg-muted/40 hover:bg-muted/40"><TableCell colSpan={6} className="p-0 h-2"></TableCell></TableRow>
+                    </React.Fragment>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
+      )}
+
+      {!isLoading && registerData.length === 0 && !isInitialLoad && (
+        <div className="text-center py-12 border-2 border-dashed rounded-2xl bg-muted/20">
+          <Search className="h-10 w-10 mx-auto text-muted-foreground opacity-20 mb-4" />
+          <p className="text-muted-foreground font-medium">No results to display. Please adjust your filters and click "Generate Register".</p>
+        </div>
       )}
     </div>
   );
 }
+
+import React from "react";
