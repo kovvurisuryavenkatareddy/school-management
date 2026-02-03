@@ -2,8 +2,8 @@
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import ExpensesPage from "../expenses/page";
-import DepartmentsPage from "../departments/page";
+import ExpensesPage from "../expenses/ExpensesPage";
+import DepartmentsPage from "../departments/DepartmentsPage";
 import { TrendingUp, Building } from "lucide-react";
 
 export default function OperationsPage() {

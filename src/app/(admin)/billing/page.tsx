@@ -2,8 +2,8 @@
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import FeesPage from "../fees/page";
-import InvoicesPage from "../invoices/page";
+import FeesPage from "../fees/FeesPage";
+import InvoicesPage from "../invoices/InvoicesPage";
 import { Receipt, FileText } from "lucide-react";
 
 export default function BillingPage() {
