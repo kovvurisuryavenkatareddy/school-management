@@ -102,7 +102,7 @@ export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 's
         </div>
         <div className="mt-auto border-t p-4">
           <p className="text-center text-[10px] text-muted-foreground font-medium uppercase tracking-widest">
-            {isExpanded ? `© ${new Date().getFullYear()} School CMS` : "CMS"}
+            {isExpanded ? `© ${new Date().getFullYear()} Sanju Animations.` : "© 2026 SA"}
           </p>
         </div>
       </div>
