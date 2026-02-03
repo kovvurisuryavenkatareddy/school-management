@@ -28,11 +28,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, FileSpreadsheet, ChevronDown, ChevronRight } from "lucide-react";
-import { FIXED_TERMS, AcademicYear, ClassGroup } from "@/types";
+import { Loader2, Search, FileSpreadsheet } from "lucide-react";
+import { FIXED_TERMS, AcademicYear, ClassGroup, StudyingYear } from "@/types";
 import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
 import Papa from "papaparse";
-import { cn } from "@/lib/utils";
+import React from "react";
 
 type TermData = {
   termName: string;
@@ -56,12 +56,16 @@ type StudentRegisterRecord = {
   years: YearData[];
 };
 
+const YEAR_RANKING = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+
 export function FeeRegisterView() {
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [classes, setClasses] = useState<ClassGroup[]>([]);
+  const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
   
   const [selectedYearFilter, setSelectedYearFilter] = useState<string>("all");
   const [selectedClass, setSelectedClass] = useState<string>("all");
+  const [selectedStudyingYear, setSelectedStudyingYear] = useState<string>("all");
   
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -69,13 +73,15 @@ export function FeeRegisterView() {
 
   useEffect(() => {
     const fetchFilters = async () => {
-      const [ayRes, classRes] = await Promise.all([
+      const [ayRes, classRes, syRes] = await Promise.all([
         supabase.from('academic_years').select('*').order('year_name', { ascending: false }),
-        supabase.from('class_groups').select('*').order('name', { ascending: true })
+        supabase.from('class_groups').select('*').order('name', { ascending: true }),
+        supabase.from('studying_years').select('*').order('name', { ascending: true })
       ]);
       
       if (ayRes.data) setAcademicYears(ayRes.data);
       if (classRes.data) setClasses(classRes.data);
+      if (syRes.data) setStudyingYears(syRes.data);
       setIsInitialLoad(false);
     };
     fetchFilters();
@@ -85,8 +91,16 @@ export function FeeRegisterView() {
     setIsLoading(true);
     try {
       let studentQuery = supabase.from('students').select('*, student_types(name)');
+      
+      // Filter students by enrollment year and class if selected
       if (selectedYearFilter !== "all") studentQuery = studentQuery.eq('academic_year_id', selectedYearFilter);
       if (selectedClass !== "all") studentQuery = studentQuery.eq('class', selectedClass);
+      
+      // If a specific year is selected, we filter students currently in that year or higher 
+      // (though we will handle the visual filtering of fee rows in the processing step)
+      if (selectedStudyingYear !== "all") {
+        studentQuery = studentQuery.eq('studying_year', selectedStudyingYear);
+      }
 
       const { data: students, error: studentError } = await studentQuery;
       if (studentError) throw studentError;
@@ -98,7 +112,6 @@ export function FeeRegisterView() {
         return;
       }
 
-      // Fetch all payments for these students to calculate term-wise totals
       const { data: payments, error: paymentError } = await supabase
         .from('payments')
         .select('*')
@@ -109,13 +122,23 @@ export function FeeRegisterView() {
       const processed: StudentRegisterRecord[] = students.map(student => {
         const normalizedFee = normalizeFeeStructure(student.fee_details);
         
-        // We process all years defined in the student's fee structure
-        const years: YearData[] = Object.entries(normalizedFee).map(([yearName, feeItems]) => {
+        // Filter the years based on cumulative logic
+        const yearEntries = Object.entries(normalizedFee).filter(([yearName]) => {
+          if (selectedStudyingYear === "all") return true;
+          
+          const selectedIdx = YEAR_RANKING.indexOf(selectedStudyingYear);
+          const currentIdx = YEAR_RANKING.indexOf(yearName);
+          
+          // Return true if current year is less than or equal to selected year ranking
+          // e.g. if 2nd Year is selected, show 1st and 2nd.
+          return currentIdx !== -1 && selectedIdx !== -1 ? currentIdx <= selectedIdx : true;
+        });
+
+        const years: YearData[] = yearEntries.map(([yearName, feeItems]) => {
           const terms: TermData[] = FIXED_TERMS.map(term => {
             const termItem = feeItems.find(i => i.term_name === term.name);
             const expected = termItem?.amount || 0;
             
-            // Filter payments for this specific student, year, and term
             const paid = (payments || [])
               .filter(p => p.student_id === student.id && p.fee_type === `${yearName} - ${term.name}`)
               .reduce((sum, p) => sum + p.amount, 0);
@@ -127,9 +150,9 @@ export function FeeRegisterView() {
               if (paid >= expected) status = 'Paid';
               else if (paid > 0) status = 'Partial';
             } else if (paid > 0) {
-              status = 'Paid'; // Overpaid or special case
+              status = 'Paid';
             } else {
-              status = 'Paid'; // Nothing expected, nothing paid
+              status = 'Paid';
             }
 
             return { termName: term.name, expected, paid, pending, status };
@@ -159,7 +182,6 @@ export function FeeRegisterView() {
 
   const downloadCSV = () => {
     const rows: any[] = [];
-    
     registerData.forEach(student => {
       student.years.forEach(year => {
         year.terms.forEach(term => {
@@ -201,10 +223,10 @@ export function FeeRegisterView() {
       <Card className="border-primary/10 shadow-sm">
         <CardHeader>
           <CardTitle className="text-xl font-ubuntu">Fee Tracking Register</CardTitle>
-          <CardDescription>Generate detailed term-wise reports for auditing and collection tracking.</CardDescription>
+          <CardDescription>Generate cumulative term-wise reports. Selecting a year shows all dues up to that point.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Academic Year</Label>
               <Select value={selectedYearFilter} onValueChange={setSelectedYearFilter}>
@@ -222,6 +244,16 @@ export function FeeRegisterView() {
                 <SelectContent>
                   <SelectItem value="all">All Classes</SelectItem>
                   {classes.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Current Studying Year</Label>
+              <Select value={selectedStudyingYear} onValueChange={setSelectedStudyingYear}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="All Years" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Years (Legacy)</SelectItem>
+                  {studyingYears.map(sy => <SelectItem key={sy.id} value={sy.name}>{sy.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -266,7 +298,7 @@ export function FeeRegisterView() {
                           {year.terms.map((term, tIdx) => (
                             <TableRow key={`${student.id}-${year.yearName}-${term.termName}`} className="hover:bg-muted/5">
                               {yIdx === 0 && tIdx === 0 && (
-                                <TableCell rowSpan={student.years.length * 3} className="pl-6 align-top pt-4 border-r">
+                                <TableCell rowSpan={student.years.reduce((acc, y) => acc + y.terms.length, 0)} className="pl-6 align-top pt-4 border-r">
                                   <div className="flex flex-col">
                                     <span className="font-black text-sm text-primary">{student.name}</span>
                                     <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tighter">Roll: {student.roll_number}</span>
@@ -288,11 +320,8 @@ export function FeeRegisterView() {
                               </TableCell>
                             </TableRow>
                           ))}
-                          {/* Year Separator Line */}
-                          <TableRow className="h-0 border-b-2 border-primary/5 bg-primary/5"><TableCell colSpan={5} className="p-0 h-1"></TableCell></TableRow>
                         </React.Fragment>
                       ))}
-                      {/* Student Separator Line */}
                       <TableRow className="h-1 bg-muted/40 hover:bg-muted/40"><TableCell colSpan={6} className="p-0 h-2"></TableCell></TableRow>
                     </React.Fragment>
                   ))}
@@ -312,5 +341,3 @@ export function FeeRegisterView() {
     </div>
   );
 }
-
-import React from "react";
