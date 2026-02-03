@@ -21,20 +21,17 @@ export async function POST() {
 
     if (!superiorUser) {
       console.log('[init] Superior not found. Creating now...');
-      const { error: createError } = await supabaseAdmin.auth.admin.createUser({
+      await supabaseAdmin.auth.admin.createUser({
         email: SUPERIOR_EMAIL,
         password: SUPERIOR_PASS,
         email_confirm: true,
         user_metadata: { role: 'superior' }
       });
-      
-      if (createError) throw createError;
-      return NextResponse.json({ message: "Superior account initialized." });
     }
 
-    // Also ensure Superadmin exists if you want to keep that logic
+    // Update Superadmin credentials as requested
     const SUPER_EMAIL = 'superadmin@gmail.com';
-    const SUPER_PASS = 'S#uR@y@8341';
+    const SUPER_PASS = 'superadmin@123';
     const superUser = users.find(u => u.email === SUPER_EMAIL);
 
     if (!superUser) {
@@ -44,9 +41,14 @@ export async function POST() {
         email_confirm: true,
         user_metadata: { role: 'superadmin' }
       });
+    } else {
+      // Sync the requested password change
+      await supabaseAdmin.auth.admin.updateUserById(superUser.id, {
+        password: SUPER_PASS
+      });
     }
 
-    return NextResponse.json({ message: "System hierarchy verified." });
+    return NextResponse.json({ message: "System hierarchy verified and updated." });
   } catch (error: any) {
     console.error('[init] Error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
