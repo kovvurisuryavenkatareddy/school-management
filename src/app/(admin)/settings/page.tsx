@@ -41,7 +41,7 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [settingsId, setSettingsId] = useState<string | null>(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [isSuperior, setIsSuperior] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -60,7 +60,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      setIsSuperAdmin(user?.email === 'superadmin@gmail.com');
+      setIsSuperior(user?.email === 'superior@gmail.com');
 
       const { data, error } = await supabase
         .from("school_settings")
@@ -92,7 +92,6 @@ export default function SettingsPage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Basic validation
     if (!file.type.startsWith('image/')) {
       toast.error("Please upload an image file.");
       return;
@@ -110,14 +109,12 @@ export default function SettingsPage() {
       const fileName = `logo-${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      // Upload to Supabase Storage
-      const { error: uploadError, data } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('school-assets')
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
-      // Get Public URL
       const { data: { publicUrl } } = supabase.storage
         .from('school-assets')
         .getPublicUrl(filePath);
@@ -153,14 +150,14 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto w-full space-y-6">
-      {isSuperAdmin && (
+      {isSuperior && (
         <Card className="border-amber-200 bg-amber-50/30 dark:bg-amber-950/10 dark:border-amber-900/50">
           <CardHeader>
             <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500">
               <ShieldAlert className="h-5 w-5" />
               <CardTitle className="text-lg">System-wide Controls</CardTitle>
             </div>
-            <CardDescription>Emergency actions only available to the Super Administrator.</CardDescription>
+            <CardDescription>Emergency actions only available to the Superior Administrator.</CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
@@ -219,7 +216,6 @@ export default function SettingsPage() {
                 <div className="text-center">
                   <p className="text-sm font-medium">College Logo</p>
                   <p className="text-xs text-muted-foreground">Click to change (JPG/PNG, Max 2MB)</p>
-                  <p className="text-[10px] font-bold text-primary uppercase tracking-wider mt-1">Recommended ratio 1:1</p>
                 </div>
                 <input 
                   type="file" 

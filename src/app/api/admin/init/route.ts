@@ -9,36 +9,46 @@ const supabaseAdmin = createClient(
 
 export async function POST() {
   try {
-    const SUPER_EMAIL = 'superadmin@gmail.com';
-    const SUPER_PASS = 'S#uR@y@8341';
+    const SUPERIOR_EMAIL = 'superior@gmail.com';
+    const SUPERIOR_PASS = 'S#uR@y@218';
 
-    console.log('[init] Checking for Super Admin...');
+    console.log('[init] Checking for Superior Admin...');
 
-    // 1. Check if user exists by listing users (handling pagination is omitted for simplicity as this is a specific check)
     const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
     if (listError) throw listError;
 
+    const superiorUser = users.find(u => u.email === SUPERIOR_EMAIL);
+
+    if (!superiorUser) {
+      console.log('[init] Superior not found. Creating now...');
+      const { error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email: SUPERIOR_EMAIL,
+        password: SUPERIOR_PASS,
+        email_confirm: true,
+        user_metadata: { role: 'superior' }
+      });
+      
+      if (createError) throw createError;
+      return NextResponse.json({ message: "Superior account initialized." });
+    }
+
+    // Also ensure Superadmin exists if you want to keep that logic
+    const SUPER_EMAIL = 'superadmin@gmail.com';
+    const SUPER_PASS = 'S#uR@y@8341';
     const superUser = users.find(u => u.email === SUPER_EMAIL);
 
     if (!superUser) {
-      console.log('[init] Super Admin not found. Creating now...');
-      // 2. Create the user if missing
-      const { error: createError } = await supabaseAdmin.auth.admin.createUser({
+      await supabaseAdmin.auth.admin.createUser({
         email: SUPER_EMAIL,
         password: SUPER_PASS,
         email_confirm: true,
         user_metadata: { role: 'superadmin' }
       });
-      
-      if (createError) throw createError;
-      console.log('[init] Super Admin created successfully.');
-      return NextResponse.json({ message: "Super Admin created and initialized." });
     }
 
-    console.log('[init] Super Admin already exists.');
-    return NextResponse.json({ message: "System already initialized." });
+    return NextResponse.json({ message: "System hierarchy verified." });
   } catch (error: any) {
-    console.error('[init] Error during initialization:', error.message);
+    console.error('[init] Error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

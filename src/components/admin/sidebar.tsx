@@ -5,17 +5,15 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
-  Receipt,
-  FileText,
-  UserCircle,
+  CreditCard,
   Building,
-  TrendingUp,
   Library,
   Package2,
   History,
   Coins,
   Settings,
   ShieldCheck,
+  UserCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -26,33 +24,32 @@ import {
 } from "@/components/ui/tooltip";
 
 const allNavItems = [
-  { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard", roles: ['superadmin', 'admin'] },
-  { href: "/students", icon: Users, label: "Students", roles: ['superadmin', 'admin'] },
-  { href: "/fees", icon: Receipt, label: "Fee Structure", roles: ['superadmin', 'admin'] },
-  { href: "/invoices", icon: FileText, label: "Invoices", roles: ['superadmin', 'admin'] },
-  { href: "/cashiers", icon: UserCircle, label: "Cashiers", roles: ['superadmin', 'admin'] },
-  { href: "/admins", icon: ShieldCheck, label: "Admins", roles: ['superadmin'] },
-  { href: "/departments", icon: Building, label: "Departments", roles: ['superadmin', 'admin'] },
-  { href: "/expenses", icon: TrendingUp, label: "Expenses", roles: ['superadmin', 'admin', 'cashier'] },
-  { href: "/class-management", icon: Library, label: "Class Management", roles: ['superadmin', 'admin'] },
-  { href: "/financials", icon: Coins, label: "Financials", roles: ['superadmin', 'admin', 'cashier'] },
-  { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['superadmin', 'admin'] },
-  { href: "/settings", icon: Settings, label: "Settings", roles: ['superadmin', 'admin'] },
+  { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard", roles: ['superior', 'superadmin', 'admin'] },
+  { href: "/students", icon: Users, label: "Students", roles: ['superior', 'superadmin', 'admin'] },
+  { href: "/billing", icon: CreditCard, label: "Billing & Fees", roles: ['superior', 'superadmin', 'admin'] },
+  { href: "/cashiers", icon: UserCircle, label: "Cashiers", roles: ['superior', 'superadmin', 'admin'] },
+  { href: "/admins", icon: ShieldCheck, label: "User Access", roles: ['superior', 'superadmin'] },
+  { href: "/operations", icon: Building, label: "Operations", roles: ['superior', 'superadmin', 'admin', 'cashier'] },
+  { href: "/class-management", icon: Library, label: "Class Control", roles: ['superior', 'superadmin', 'admin'] },
+  { href: "/financials", icon: Coins, label: "Financials", roles: ['superior', 'superadmin', 'admin', 'cashier'] },
+  { href: "/activity-logs", icon: History, label: "Activity Logs", roles: ['superior', 'superadmin', 'admin'] },
+  { href: "/settings", icon: Settings, label: "Settings", roles: ['superior', 'superadmin', 'admin'] },
 ];
 
-export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'superadmin' | 'admin' | 'cashier', isExpanded: boolean, cashierProfile: any }) {
+export function Sidebar({ userRole, isExpanded, cashierProfile }: { userRole: 'superior' | 'superadmin' | 'admin' | 'cashier', isExpanded: boolean, cashierProfile: any }) {
   const pathname = usePathname();
   
   const navItems = allNavItems.filter(item => {
     if (!item.roles.includes(userRole)) return false;
-    if (userRole === 'cashier' && item.href === '/expenses') {
-      return cashierProfile?.has_expenses_permission;
+    // Special check for operations access for cashiers
+    if (userRole === 'cashier' && item.href === '/operations' && !cashierProfile?.has_expenses_permission) {
+        return false;
     }
     return true;
   });
 
-  const portalTitle = userRole === 'superadmin' ? 'Super Admin' : (userRole === 'admin' ? 'Admin Portal' : 'Cashier Portal');
-  const homeLink = (userRole === 'superadmin' || userRole === 'admin') ? '/dashboard' : '/financials';
+  const portalTitle = userRole.toUpperCase();
+  const homeLink = (userRole === 'cashier') ? '/financials' : '/dashboard';
 
   return (
     <aside className={cn(
