@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { toast } from "sonner";
-import { Loader2, Save, Building2, MapPin, Upload, X, ShieldAlert, Power, ImageIcon } from "lucide-react";
+import { Loader2, Save, Upload, ShieldAlert, Power, ImageIcon } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -65,7 +65,7 @@ export default function SettingsPage() {
       const { data, error } = await supabase
         .from("school_settings")
         .select("*")
-        .single();
+        .maybeSingle();
 
       if (error) {
         toast.error("Failed to load organization settings.");
@@ -130,6 +130,10 @@ export default function SettingsPage() {
   };
 
   const onSubmit = async (values: z.infer<typeof settingsSchema>) => {
+    if (!settingsId) {
+        toast.error("Settings ID not found. Please refresh and try again.");
+        return;
+    }
     setIsSaving(true);
     const { error } = await supabase
       .from("school_settings")

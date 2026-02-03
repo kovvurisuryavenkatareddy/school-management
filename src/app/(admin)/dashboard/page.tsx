@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { BarChart, DollarSign, Receipt, TrendingDown, TrendingUp, Users, CreditCard, Activity, Building2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Users, Building2, History, UserPlus, GraduationCap, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -10,304 +11,199 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
-import { Bar, Pie, Cell, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, BarChart as RechartsBarChart } from "recharts";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-const currencyFormatter = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 });
-const yAxisFormatter = (value: number) => `₹ ${value}`;
-
-type Stats = {
-  paidInvoices: number;
-  pendingInvoices: number;
-  totalInvoices: number;
-  monthlyCollection: number;
-  monthlyExpenses: number;
+type DashboardData = {
   totalStudents: number;
-};
-
-type SchoolSettings = {
-  school_name: string;
-  logo_url: string | null;
+  recentActivity: any[];
+  enrollmentStats: { name: string; count: number }[];
+  activeCashiers: number;
 };
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [barChartData, setBarChartData] = useState<any[]>([]);
-  const [academicYears, setAcademicYears] = useState<{ year_name: string }[]>([]);
-  const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
-  const [schoolSettings, setSchoolSettings] = useState<SchoolSettings | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [schoolSettings, setSchoolSettings] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchInitialData = async () => {
+    const fetchDashboardData = async () => {
       setIsLoading(true);
       try {
-        const currentMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-
         const [
-          invoiceRes,
-          collectionRes,
-          expensesRes,
-          yearsRes,
           studentsRes,
+          logsRes,
+          cashiersRes,
           settingsRes,
+          classRes
         ] = await Promise.all([
-          supabase.from("invoices").select("status"),
-          supabase.from("payments").select("amount").gte("created_at", currentMonthStart),
-          supabase.from("expenses").select("amount").gte("expense_date", currentMonthStart),
-          supabase.from("academic_years").select("year_name").order("year_name", { ascending: false }),
           supabase.from("students").select("*", { count: "exact", head: true }),
+          supabase.from("activity_logs").select("*, students(name, roll_number)").order("timestamp", { ascending: false }).limit(6),
+          supabase.from("cashiers").select("*", { count: "exact", head: true }),
           supabase.from("school_settings").select("school_name, logo_url").single(),
+          supabase.from("students").select("studying_year")
         ]);
 
-        const invoiceData = invoiceRes.data || [];
-        const paidCount = invoiceData.filter(i => i.status === 'paid').length;
-        const pendingCount = invoiceData.filter(i => i.status === 'unpaid').length;
-        
-        const monthlyCollection = collectionRes.data?.reduce((sum, p) => sum + p.amount, 0) || 0;
-        const monthlyExpenses = expensesRes.data?.reduce((sum, e) => sum + e.amount, 0) || 0;
-        
-        setStats({
-          paidInvoices: paidCount,
-          pendingInvoices: pendingCount,
-          totalInvoices: invoiceData.length,
-          monthlyCollection,
-          monthlyExpenses,
+        // Process enrollment stats
+        const yearCounts: Record<string, number> = {};
+        classRes.data?.forEach(s => {
+            const y = s.studying_year || 'Unknown';
+            yearCounts[y] = (yearCounts[y] || 0) + 1;
+        });
+
+        const enrollmentStats = Object.entries(yearCounts).map(([name, count]) => ({ name, count }));
+
+        setData({
           totalStudents: studentsRes.count || 0,
+          recentActivity: logsRes.data || [],
+          enrollmentStats: enrollmentStats.sort((a, b) => a.name.localeCompare(b.name)),
+          activeCashiers: cashiersRes.count || 0,
         });
 
         if (settingsRes.data) {
           setSchoolSettings(settingsRes.data);
         }
-
-        // Prepare Years for Dropdown - Always include current year
-        const yearSet = new Set<string>();
-        yearSet.add(new Date().getFullYear().toString());
-        
-        if (yearsRes.data) {
-          yearsRes.data.forEach(y => {
-            const matched = y.year_name.match(/\d{4}/);
-            if (matched) yearSet.add(matched[0]);
-          });
-        }
-        
-        const uniqueYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a)).map(y => ({ year_name: y }));
-        setAcademicYears(uniqueYears);
       } catch (err) {
-        console.error("Error fetching dashboard stats:", err);
+        console.error("Error fetching dashboard data:", err);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchInitialData();
+    fetchDashboardData();
   }, []);
-
-  useEffect(() => {
-    const fetchBarChartData = async () => {
-      if (!selectedYear) return;
-
-      const yearNum = parseInt(selectedYear);
-      const [paymentsRes, expensesRes] = await Promise.all([
-        supabase.rpc('get_monthly_payments', { year_in: yearNum }),
-        supabase.rpc('get_monthly_expenses', { year_in: yearNum }),
-      ]);
-
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const monthData = monthNames.map(name => ({
-        month: name,
-        income: 0,
-        expenses: 0,
-      }));
-
-      // Map payments to chart data
-      if (paymentsRes.data) {
-        paymentsRes.data.forEach((p: any) => {
-          const date = new Date(p.month);
-          const monthIndex = date.getUTCMonth();
-          if (monthIndex >= 0 && monthIndex < 12) {
-            monthData[monthIndex].income = Number(p.total);
-          }
-        });
-      }
-
-      // Map expenses to chart data
-      if (expensesRes.data) {
-        expensesRes.data.forEach((e: any) => {
-          const date = new Date(e.month);
-          const monthIndex = date.getUTCMonth();
-          if (monthIndex >= 0 && monthIndex < 12) {
-            monthData[monthIndex].expenses = Number(e.total);
-          }
-        });
-      }
-
-      setBarChartData(monthData);
-    };
-
-    fetchBarChartData();
-  }, [selectedYear]);
-
-  const pieData = useMemo(() => {
-    if (!stats) return [];
-    if (stats.totalInvoices === 0) return [{ name: 'No Invoices', value: 1 }];
-    return [
-      { name: 'Paid', value: stats.paidInvoices },
-      { name: 'Pending', value: stats.pendingInvoices }
-    ];
-  }, [stats]);
-
-  const COLORS = ['#3b82f6', '#f43f5e', '#e2e8f0'];
-
-  const profit = (stats?.monthlyCollection || 0) - (stats?.monthlyExpenses || 0);
 
   return (
     <div className="space-y-6">
       {/* Branded Header Section */}
-      <div className="flex flex-col md:flex-row items-center gap-4 bg-background p-6 rounded-2xl border shadow-sm transition-all hover:shadow-md">
-        <div className="h-20 w-20 rounded-xl border bg-muted flex items-center justify-center overflow-hidden shrink-0">
+      <div className="flex flex-col md:flex-row items-center gap-4 bg-background p-6 rounded-2xl border shadow-sm">
+        <div className="h-16 w-16 rounded-xl border bg-muted flex items-center justify-center overflow-hidden shrink-0">
           {schoolSettings?.logo_url ? (
             <img src={schoolSettings.logo_url} alt="College Logo" className="h-full w-full object-contain p-1" />
           ) : (
-            <Building2 className="h-10 w-10 text-muted-foreground/40" />
+            <Building2 className="h-8 w-8 text-muted-foreground/40" />
           )}
         </div>
-        <div className="text-center md:text-left space-y-1">
+        <div className="text-center md:text-left space-y-0.5">
           {isLoading ? (
-            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-7 w-64" />
           ) : (
-            <h1 className="text-2xl md:text-3xl font-ubuntu font-black text-primary tracking-tight">
-              {schoolSettings?.school_name || "Welcome to the Portal"}
+            <h1 className="text-2xl font-ubuntu font-black text-primary tracking-tight">
+              {schoolSettings?.school_name || "School Portal"}
             </h1>
           )}
-          <p className="text-muted-foreground text-sm font-medium">Administrative Overview Dashboard</p>
+          <p className="text-muted-foreground text-xs font-medium uppercase tracking-widest">Management Overview</p>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <StatCard 
-          title="Total Students" 
-          value={stats?.totalStudents || 0} 
+          title="Total Enrollment" 
+          value={data?.totalStudents || 0} 
           icon={Users} 
-          description="Enrolled across all years" 
+          description="Total active student records" 
           isLoading={isLoading} 
           color="blue"
         />
         <StatCard 
-          title="Monthly Collection" 
-          value={currencyFormatter.format(stats?.monthlyCollection || 0)} 
-          icon={TrendingUp} 
-          description="Collected this month" 
+          title="Active Cashiers" 
+          value={data?.activeCashiers || 0} 
+          icon={UserPlus} 
+          description="Provisioned billing accounts" 
           isLoading={isLoading} 
           color="emerald"
         />
         <StatCard 
-          title="Monthly Expenses" 
-          value={currencyFormatter.format(stats?.monthlyExpenses || 0)} 
-          icon={TrendingDown} 
-          description="Spent this month" 
+          title="Graduation Flow" 
+          value={data?.enrollmentStats.find(s => s.name.includes('3rd'))?.count || 0} 
+          icon={GraduationCap} 
+          description="Students in final year" 
           isLoading={isLoading} 
           color="rose"
-        />
-        <StatCard 
-          title="Current Profit" 
-          value={currencyFormatter.format(profit)} 
-          icon={Activity} 
-          description="Monthly net balance" 
-          isLoading={isLoading} 
-          color={profit >= 0 ? "emerald" : "rose"}
         />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="lg:col-span-4 shadow-sm border-muted/60">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div className="space-y-1">
-              <CardTitle className="text-xl">Financial Overview</CardTitle>
-              <CardDescription>Monthly Fee Collection vs. Expenses</CardDescription>
-            </div>
-            <Select value={selectedYear} onValueChange={setSelectedYear}>
-              <SelectTrigger className="w-[120px] h-9">
-                <SelectValue placeholder="Year" />
-              </SelectTrigger>
-              <SelectContent>
-                {academicYears.map(y => <SelectItem key={y.year_name} value={y.year_name}>{y.year_name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+        {/* Enrollment Breakdown */}
+        <Card className="lg:col-span-3 shadow-sm">
+          <CardHeader>
+            <CardTitle>Enrollment Distribution</CardTitle>
+            <CardDescription>Student count by studying year</CardDescription>
           </CardHeader>
-          <CardContent className="h-[350px] pt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <RechartsBarChart data={barChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} tickFormatter={yAxisFormatter} />
-                <Tooltip 
-                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} 
-                  contentStyle={{ background: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} 
-                  formatter={(value) => currencyFormatter.format(value as number)} 
-                />
-                <Legend iconType="circle" />
-                <Bar dataKey="income" fill="hsl(var(--primary))" name="Collections" radius={[4, 4, 0, 0]} barSize={24} />
-                <Bar dataKey="expenses" fill="#f43f5e" name="Expenses" radius={[4, 4, 0, 0]} barSize={24} />
-              </RechartsBarChart>
-            </ResponsiveContainer>
+          <CardContent>
+            <div className="space-y-4">
+              {isLoading ? (
+                Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)
+              ) : data?.enrollmentStats.length ? (
+                data.enrollmentStats.map((stat) => (
+                  <div key={stat.name} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border">
+                    <span className="font-semibold text-sm">{stat.name}</span>
+                    <Badge variant="secondary" className="font-black">{stat.count} Students</Badge>
+                  </div>
+                ))
+              ) : (
+                <p className="text-center text-muted-foreground py-10">No enrollment data available.</p>
+              )}
+            </div>
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-3 shadow-sm border-muted/60">
-          <CardHeader>
-            <CardTitle className="text-xl">Invoice Status</CardTitle>
-            <CardDescription>Overall tracking of generated invoices</CardDescription>
+        {/* Recent System Activity */}
+        <Card className="lg:col-span-4 shadow-sm overflow-hidden">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Recent Activity</CardTitle>
+              <CardDescription>Latest actions performed in the portal</CardDescription>
+            </div>
+            <Button variant="ghost" size="sm" className="gap-1 text-primary" asChild>
+                <Link href="/activity-logs">View Logs <ChevronRight className="h-4 w-4" /></Link>
+            </Button>
           </CardHeader>
-          <CardContent className="h-[350px] flex flex-col items-center justify-center">
-            <div className="h-[240px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie 
-                    data={pieData} 
-                    dataKey="value" 
-                    nameKey="name" 
-                    cx="50%" 
-                    cy="50%" 
-                    innerRadius={60} 
-                    outerRadius={80} 
-                    paddingAngle={5}
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend verticalAlign="bottom" height={36}/>
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="grid grid-cols-2 gap-8 w-full px-4 mt-4">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Total Invoices</p>
-                <p className="text-2xl font-bold">{stats?.totalInvoices || 0}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Pending Rate</p>
-                <p className="text-2xl font-bold text-rose-600">
-                  {stats?.totalInvoices ? Math.round((stats.pendingInvoices / stats.totalInvoices) * 100) : 0}%
-                </p>
-              </div>
-            </div>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="pl-6">Action</TableHead>
+                  <TableHead>Student</TableHead>
+                  <TableHead className="text-right pr-6">Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  Array(5).fill(0).map((_, i) => (
+                    <TableRow key={i}><TableCell colSpan={3}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
+                  ))
+                ) : data?.recentActivity.length ? (
+                  data.recentActivity.map((log) => (
+                    <TableRow key={log.id}>
+                      <TableCell className="pl-6 py-3">
+                        <div className="flex items-center gap-2">
+                            <History className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-xs font-bold uppercase tracking-tighter">{log.action}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-xs font-medium">{log.students?.name || 'System'}</span>
+                      </TableCell>
+                      <TableCell className="text-right pr-6 text-[10px] text-muted-foreground font-mono">
+                        {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground italic">No recent activity.</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       </div>
@@ -317,26 +213,26 @@ export default function Dashboard() {
 
 function StatCard({ title, value, icon: Icon, description, isLoading, color }: any) {
   const colorMap: any = {
-    blue: "bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400",
-    emerald: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400",
-    rose: "bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400",
+    blue: "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400",
+    emerald: "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400",
+    rose: "bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400",
   };
 
   return (
     <Card className="shadow-sm border-muted/60 hover:shadow-md transition-shadow">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{title}</CardTitle>
+        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{title}</CardTitle>
         <div className={cn("p-2 rounded-lg", colorMap[color] || colorMap.blue)}>
-          <Icon className="h-5 w-5" />
+          <Icon className="h-4 w-4" />
         </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <Skeleton className="h-8 w-3/4 mb-1" />
+          <Skeleton className="h-8 w-1/2 mb-1" />
         ) : (
           <div className="text-2xl font-black font-ubuntu">{value}</div>
         )}
-        <p className="text-xs text-muted-foreground mt-1">{description}</p>
+        <p className="text-[10px] text-muted-foreground mt-1 font-medium">{description}</p>
       </CardContent>
     </Card>
   );
