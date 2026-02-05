@@ -41,12 +41,13 @@ export async function POST() {
     }
 
     // 2. Ensure School Settings record exists
-    const { data: settings, error: settingsError } = await supabaseAdmin
+    const { data: existingSettings } = await supabaseAdmin
       .from('school_settings')
       .select('id')
-      .maybeSingle();
+      .limit(1);
 
-    if (!settings && !settingsError) {
+    if (!existingSettings || existingSettings.length === 0) {
+      console.log('[init] Creating default school settings...');
       await supabaseAdmin.from('school_settings').insert([{
         school_name: "IDEAL COLLEGE OF ENGINEERING",
         address: "Vidyut Nagar kakinada - 533308",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -57,32 +57,40 @@ export default function SettingsPage() {
 
   const logoUrl = form.watch("logo_url");
 
-  const fetchSettings = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    setIsSuperior(user?.email === 'superior@gmail.com');
+  const fetchSettings = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsSuperior(user?.email === 'superior@gmail.com');
 
-    const { data, error } = await supabase
-      .from("school_settings")
-      .select("*")
-      .maybeSingle();
+      const { data, error } = await supabase
+        .from("school_settings")
+        .select("*")
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (error) {
+      if (error) throw error;
+
+      if (data) {
+        setSettingsId(data.id);
+        form.reset({
+          school_name: data.school_name || "",
+          address: data.address || "",
+          logo_url: data.logo_url || "",
+          is_maintenance_mode: !!data.is_maintenance_mode,
+        });
+      }
+    } catch (err: any) {
+      console.error("Fetch settings error:", err);
       toast.error("Failed to load organization settings.");
-    } else if (data) {
-      setSettingsId(data.id);
-      form.reset({
-        school_name: data.school_name || "",
-        address: data.address || "",
-        logo_url: data.logo_url || "",
-        is_maintenance_mode: data.is_maintenance_mode || false,
-      });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
-  };
+  }, [form]);
 
   useEffect(() => {
     fetchSettings();
-  }, [form]);
+  }, [fetchSettings]);
 
   const handleLogoClick = () => {
     fileInputRef.current?.click();
@@ -109,7 +117,6 @@ export default function SettingsPage() {
       const fileName = `logo-${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      // Upload to school-assets bucket
       const { error: uploadError } = await supabase.storage
         .from('school-assets')
         .upload(filePath, file);
@@ -132,27 +139,37 @@ export default function SettingsPage() {
 
   const onSubmit = async (values: z.infer<typeof settingsSchema>) => {
     setIsSaving(true);
+    const toastId = toast.loading("Saving settings...");
     
-    // Use upsert to handle both creation and update
-    const payload: any = { ...values };
-    if (settingsId) {
-        payload.id = settingsId;
-    }
+    try {
+      const payload: any = { ...values };
+      if (settingsId) {
+          payload.id = settingsId;
+      }
 
-    const { data, error } = await supabase
-      .from("school_settings")
-      .upsert(payload)
-      .select()
-      .single();
+      const { data, error } = await supabase
+        .from("school_settings")
+        .upsert(payload)
+        .select()
+        .single();
 
-    if (error) {
-      toast.error(`Operation failed: ${error.message}`);
-    } else {
+      if (error) throw error;
+
       setSettingsId(data.id);
-      toast.success("Settings saved successfully!");
-      fetchSettings(); // Refresh to sync state
+      toast.success("Settings saved successfully!", { id: toastId });
+      
+      // Update form state with saved data
+      form.reset({
+        school_name: data.school_name || "",
+        address: data.address || "",
+        logo_url: data.logo_url || "",
+        is_maintenance_mode: !!data.is_maintenance_mode,
+      });
+    } catch (err: any) {
+      toast.error(`Save failed: ${err.message}`, { id: toastId });
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
   if (isLoading) {
