@@ -15,57 +15,57 @@ export default function AdminLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [userRole, setUserRole] = useState<'superadmin' | 'admin' | 'cashier' | null>(null);
+  const [userRole, setUserRole] = useState<'superior' | 'superadmin' | 'admin' | 'cashier' | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [cashierProfile, setCashierProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
 
   useEffect(() => {
-    // Run initialization of Super Admin
-    const initSuper = async () => {
-      try {
-        await fetch('/api/admin/init', { method: 'POST' });
-      } catch (err) {
-        console.error("Failed to sync super admin status");
-      }
-    };
-    initSuper();
-  }, []);
-
-  useEffect(() => {
     const checkStatusAndRole = async () => {
+      // Use getSession for initial check
       const { data: { session } } = await supabase.auth.getSession();
+      
       if (!session) {
-        router.push('/login');
-        return;
+        // Double check with a small delay to handle session hydration issues
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          router.push('/login');
+          return;
+        }
       }
+
+      const user = session?.user;
+      if (!user) return;
 
       // 1. Check Maintenance Mode
       const { data: settings } = await supabase.from('school_settings').select('is_maintenance_mode').single();
-      const isSuper = session.user.email === 'superadmin@gmail.com';
+      const metadataRole = user.user_metadata?.role;
+      const isSuperior = user.email === 'superior@gmail.com' || metadataRole === 'superior';
+      const isSuperAdmin = user.email === 'superadmin@gmail.com' || metadataRole === 'superadmin';
       
-      if (settings?.is_maintenance_mode && !isSuper && pathname !== '/maintenance') {
+      if (settings?.is_maintenance_mode && !isSuperior && pathname !== '/maintenance') {
         router.push('/maintenance');
         return;
       }
 
       // 2. Determine Role
-      let role: 'superadmin' | 'admin' | 'cashier' = 'admin';
-      
-      if (isSuper) {
-        role = 'superadmin';
+      if (isSuperior) {
+        setUserRole('superior');
+        setUserName('Superior Admin');
+      } else if (isSuperAdmin) {
+        setUserRole('superadmin');
         setUserName('Super Admin');
       } else {
         // Check if Cashier
         const { data: cashier } = await supabase
           .from('cashiers')
           .select('*')
-          .eq('user_id', session.user.id)
+          .eq('user_id', user.id)
           .single();
 
         if (cashier) {
-          role = 'cashier';
+          setUserRole('cashier');
           setUserName(cashier.name);
           setCashierProfile(cashier);
           if (cashier.password_change_required && pathname !== '/change-password') {
@@ -73,34 +73,45 @@ export default function AdminLayout({
             return;
           }
         } else {
-          // It's a standard Admin
-          setUserName(session.user.email || 'Admin');
+          // Standard Admin
+          setUserRole('admin');
+          setUserName(user.email || 'Admin');
         }
       }
       
-      setUserRole(role);
       setIsLoading(false);
     };
 
     checkStatusAndRole();
+
+    // Set up a listener for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        router.push('/login');
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, [router, pathname]);
 
-  // Role-based protection
+  // Role-based route protection
   useEffect(() => {
     if (!userRole) return;
 
     const superOnly = ['/admins'];
-    const adminOrHigher = ['/dashboard', '/students', '/fees', '/invoices', '/cashiers', '/departments', '/class-management', '/activity-logs', '/settings'];
+    const adminOrHigher = ['/dashboard', '/students', '/billing', '/fees', '/invoices', '/cashiers', '/departments', '/operations', '/class-management', '/activity-logs', '/settings'];
     
     if (userRole === 'cashier') {
       const isProtected = adminOrHigher.some(p => pathname.startsWith(p)) || superOnly.some(p => pathname.startsWith(p));
-      if (isProtected && !pathname.startsWith('/expenses') && !pathname.startsWith('/financials')) {
+      // Cashiers can access financials and potentially operations (expenses) if permitted
+      if (isProtected && !pathname.startsWith('/financials') && !pathname.startsWith('/operations') && !pathname.startsWith('/expenses')) {
         router.push('/financials');
       }
     } else if (userRole === 'admin') {
+      // Admins cannot access superadmin only pages
       if (superOnly.some(p => pathname.startsWith(p))) {
         router.push('/dashboard');
-        toast.error("Super Admin access required.");
+        toast.error("Access denied.");
       }
     }
   }, [userRole, pathname, router]);
