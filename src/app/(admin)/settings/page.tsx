@@ -57,30 +57,30 @@ export default function SettingsPage() {
 
   const logoUrl = form.watch("logo_url");
 
+  const fetchSettings = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setIsSuperior(user?.email === 'superior@gmail.com');
+
+    const { data, error } = await supabase
+      .from("school_settings")
+      .select("*")
+      .maybeSingle();
+
+    if (error) {
+      toast.error("Failed to load organization settings.");
+    } else if (data) {
+      setSettingsId(data.id);
+      form.reset({
+        school_name: data.school_name || "",
+        address: data.address || "",
+        logo_url: data.logo_url || "",
+        is_maintenance_mode: data.is_maintenance_mode || false,
+      });
+    }
+    setIsLoading(false);
+  };
+
   useEffect(() => {
-    const fetchSettings = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setIsSuperior(user?.email === 'superior@gmail.com');
-
-      const { data, error } = await supabase
-        .from("school_settings")
-        .select("*")
-        .maybeSingle();
-
-      if (error) {
-        toast.error("Failed to load organization settings.");
-      } else if (data) {
-        setSettingsId(data.id);
-        form.reset({
-          school_name: data.school_name,
-          address: data.address,
-          logo_url: data.logo_url || "",
-          is_maintenance_mode: data.is_maintenance_mode || false,
-        });
-      }
-      setIsLoading(false);
-    };
-
     fetchSettings();
   }, [form]);
 
@@ -109,6 +109,7 @@ export default function SettingsPage() {
       const fileName = `logo-${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
+      // Upload to school-assets bucket
       const { error: uploadError } = await supabase.storage
         .from('school-assets')
         .upload(filePath, file);
@@ -130,20 +131,26 @@ export default function SettingsPage() {
   };
 
   const onSubmit = async (values: z.infer<typeof settingsSchema>) => {
-    if (!settingsId) {
-        toast.error("Settings ID not found. Please refresh and try again.");
-        return;
-    }
     setIsSaving(true);
-    const { error } = await supabase
+    
+    // Use upsert to handle both creation and update
+    const payload: any = { ...values };
+    if (settingsId) {
+        payload.id = settingsId;
+    }
+
+    const { data, error } = await supabase
       .from("school_settings")
-      .update(values)
-      .eq("id", settingsId);
+      .upsert(payload)
+      .select()
+      .single();
 
     if (error) {
-      toast.error(`Update failed: ${error.message}`);
+      toast.error(`Operation failed: ${error.message}`);
     } else {
-      toast.success("Settings updated successfully!");
+      setSettingsId(data.id);
+      toast.success("Settings saved successfully!");
+      fetchSettings(); // Refresh to sync state
     }
     setIsSaving(false);
   };
@@ -182,7 +189,7 @@ export default function SettingsPage() {
                     </FormItem>
                   )}
                 />
-                <div className="flex justify-end"><Button type="submit" variant="outline">Update System State</Button></div>
+                <div className="flex justify-end"><Button type="submit" variant="outline" disabled={isSaving}>Update System State</Button></div>
               </form>
             </Form>
           </CardContent>
