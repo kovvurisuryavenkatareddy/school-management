@@ -129,16 +129,18 @@ export default function AdminLayout({
 
   const currentYear = new Date().getFullYear();
 
+  const effectiveRoleForUi = userRole === 'superior' ? 'superadmin' : userRole;
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
-      <Sidebar userRole={userRole} isExpanded={isSidebarExpanded} cashierProfile={cashierProfile} />
+      <Sidebar userRole={effectiveRoleForUi} isExpanded={isSidebarExpanded} cashierProfile={cashierProfile} />
       <div className={cn(
         "flex flex-col min-h-screen transition-all duration-300 print:p-0",
         isSidebarExpanded ? "sm:pl-56 print:!pl-0" : "sm:pl-14 print:!pl-0"
       )}>
         <Header 
           userName={userName} 
-          userRole={userRole} 
+          userRole={effectiveRoleForUi} 
           isSidebarExpanded={isSidebarExpanded} 
           onToggleSidebar={() => setIsSidebarExpanded(prev => !prev)} 
           cashierProfile={cashierProfile} 
