@@ -5,11 +5,13 @@ import { supabase } from "@/integrations/supabase/client";
  * Fetches organization settings and generates receipt HTML.
  */
 export async function generateReceiptHtml(student: StudentDetails, payment: Payment, cashierName: string | null): Promise<string> {
-  // Fetch current school settings
+  // Fetch current school settings (most recent)
   const { data: settings } = await supabase
     .from("school_settings")
     .select("*")
-    .single();
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   const schoolName = settings?.school_name || "IDEAL COLLEGE OF ENGINEERING";
   const address = settings?.address || "Vidyut Nagar kakinada - 533308";

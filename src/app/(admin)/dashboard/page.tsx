@@ -50,7 +50,7 @@ export default function Dashboard() {
           supabase.from("students").select("*", { count: "exact", head: true }),
           supabase.from("activity_logs").select("*, students(name, roll_number)").order("timestamp", { ascending: false }).limit(6),
           supabase.from("cashiers").select("*", { count: "exact", head: true }),
-          supabase.from("school_settings").select("school_name, logo_url").single(),
+          supabase.from("school_settings").select("school_name, logo_url").order('updated_at', { ascending: false }).limit(1).maybeSingle(),
           supabase.from("students").select("studying_year")
         ]);
 
