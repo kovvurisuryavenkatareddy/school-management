@@ -1,15 +1,18 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+function getAdminClient() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing Supabase environment variables.");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 export async function POST(request: Request) {
   try {
+    const supabaseAdmin = getAdminClient();
     const { name, email, phone, has_discount_permission, has_expenses_permission, password } = await request.json();
+    
     if (!password) return NextResponse.json({ error: "Password is required." }, { status: 400 });
 
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -51,6 +54,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const supabaseAdmin = getAdminClient();
     const { user_id, password } = await request.json();
     if (!user_id || !password) return NextResponse.json({ error: "User ID and New Password are required." }, { status: 400 });
 
@@ -68,10 +72,10 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const supabaseAdmin = getAdminClient();
     const { user_ids } = await request.json();
     if (!user_ids || !Array.isArray(user_ids)) return NextResponse.json({ error: "user_ids array is required." }, { status: 400 });
 
-    // Iterate and delete each user from Auth
     for (const id of user_ids) {
       await supabaseAdmin.auth.admin.deleteUser(id);
     }
