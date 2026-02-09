@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+const SUPABASE_URL = "https://bgsfijdktrghudhgiceh.supabase.co";
+
 function getAdminClient() {
-  const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Missing Supabase environment variables.");
-  return createClient(url, key, { auth: { persistSession: false } });
+  if (!key) {
+    console.error("[cashiers-api] Missing SUPABASE_SERVICE_ROLE_KEY");
+    throw new Error("Internal credentials missing");
+  }
+  return createClient(SUPABASE_URL, key, { auth: { persistSession: false } });
 }
 
 export async function POST(request: Request) {
@@ -48,6 +52,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ message: "Cashier created successfully" }, { status: 200 });
   } catch (error: any) {
+    console.error("[cashiers-api] POST Error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -66,6 +71,7 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ message: "Password updated successfully" }, { status: 200 });
   } catch (error: any) {
+    console.error("[cashiers-api] PATCH Error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -82,6 +88,7 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({ message: `${user_ids.length} cashiers deleted successfully` }, { status: 200 });
   } catch (error: any) {
+    console.error("[cashiers-api] DELETE Error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
