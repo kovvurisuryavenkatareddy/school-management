@@ -81,7 +81,7 @@ export function InvoiceBatchList({ batchId }: InvoiceBatchListProps) {
       <CardHeader>
         <div className="flex items-center gap-4">
           <Button variant="outline" size="icon" asChild>
-            <Link href="/admin/invoices">
+            <Link href="/invoices">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
