@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 
@@ -40,6 +40,7 @@ interface InvoiceBatchViewProps {
 }
 
 export function InvoiceBatchView({ batchId }: InvoiceBatchViewProps) {
+  const router = useRouter();
   const [invoices, setInvoices] = useState<StudentInvoice[]>([]);
   const [batchDescription, setBatchDescription] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -88,11 +89,13 @@ export function InvoiceBatchView({ batchId }: InvoiceBatchViewProps) {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-4">
-          <Link href="/invoices">
-            <Button variant="outline" size="icon">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button 
+            variant="outline" 
+            size="icon" 
+            onClick={() => router.back()}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
           <div>
             <CardTitle>{batchDescription}</CardTitle>
             <CardDescription>

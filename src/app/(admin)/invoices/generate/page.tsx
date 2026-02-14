@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -43,6 +43,7 @@ const formSchema = z.object({
 });
 
 export default function GenerateInvoicesPage() {
+  const router = useRouter();
   const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([]);
   const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
   const [classGroups, setClassGroups] = useState<ClassGroup[]>([]);
@@ -78,7 +79,6 @@ export default function GenerateInvoicesPage() {
     const toastId = toast.loading("Processing bulk invoices...");
     
     try {
-      // 1. Fetch target students based on multiple filters
       let studentQuery = supabase
         .from('students')
         .select('id, class, section, student_type_id');
@@ -98,7 +98,6 @@ export default function GenerateInvoicesPage() {
 
       let totalInvoicesCreated = 0;
 
-      // 2. Loop through each selected fee type and generate a batch for matched students
       for (const feeId of values.fee_structure_ids) {
         const selectedFee = feeStructures.find(fs => fs.id === feeId);
         if (!selectedFee) continue;
@@ -124,7 +123,6 @@ export default function GenerateInvoicesPage() {
         if (invoiceError) throw invoiceError;
         if (!newInvoices) continue;
 
-        // 3. Add line items for each invoice
         const invoiceItemsToInsert = newInvoices.map(invoice => ({
           invoice_id: invoice.id,
           description: selectedFee.fee_name,
@@ -150,11 +148,13 @@ export default function GenerateInvoicesPage() {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-4">
-          <Link href="/invoices">
-            <Button variant="outline" size="icon">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button 
+            variant="outline" 
+            size="icon" 
+            onClick={() => router.back()}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
           <div>
             <CardTitle>Generate Bulk Invoices</CardTitle>
             <CardDescription>
