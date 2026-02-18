@@ -69,6 +69,7 @@ export async function POST(request: Request) {
       });
 
     if (cashierError) {
+      // Cleanup: delete the auth user if profile creation fails
       await supabaseAdmin.auth.admin.deleteUser(newUser.id);
       return NextResponse.json({ error: `Profile Error: ${cashierError.message}` }, { status: 500 });
     }
