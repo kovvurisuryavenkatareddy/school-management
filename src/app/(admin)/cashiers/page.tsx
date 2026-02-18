@@ -79,9 +79,9 @@ const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   phone: z.string().optional(),
-  has_discount_permission: z.boolean().default(false),
-  has_expenses_permission: z.boolean().default(false),
-  has_revert_permission: z.boolean().default(false),
+  has_discount_permission: z.boolean(),
+  has_expenses_permission: z.boolean(),
+  has_revert_permission: z.boolean(),
   password: z.string().optional(),
 });
 
@@ -394,12 +394,13 @@ export default function CashiersPage() {
                           <DropdownMenuItem onSelect={() => { 
                             setEditingCashier(cashier); 
                             form.reset({ 
-                              ...cashier, 
+                              name: cashier.name, 
+                              email: cashier.email ?? "", 
                               phone: cashier.phone ?? "", 
-                              password: "",
-                              has_discount_permission: !!cashier.has_discount_permission,
-                              has_expenses_permission: !!cashier.has_expenses_permission,
-                              has_revert_permission: !!cashier.has_revert_permission
+                              has_discount_permission: cashier.has_discount_permission, 
+                              has_expenses_permission: cashier.has_expenses_permission, 
+                              has_revert_permission: cashier.has_revert_permission, 
+                              password: "" 
                             }); 
                             setDialogOpen(true); 
                           }}><Pencil className="mr-2 h-4 w-4" />Edit Profile</DropdownMenuItem>
