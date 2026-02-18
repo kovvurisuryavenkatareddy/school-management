@@ -39,8 +39,11 @@ export function FeeSummaryTable({ student, payments = [], onPay, onEditConcessio
       const metrics = ['Term 1', 'Term 2', 'Term 3'].map(termName => {
         const item = items.find(i => i.name === termName);
         const total = item?.amount || 0;
+        
+        // Robust case-insensitive matching for payment fee types
+        const searchPattern = `${year} - ${termName}`.toLowerCase();
         const paid = payments
-          .filter(p => p.fee_type.includes(`${year} - ${termName}`))
+          .filter(p => p.fee_type.toLowerCase().includes(searchPattern))
           .reduce((sum, p) => sum + p.amount, 0);
 
         return {
@@ -62,7 +65,6 @@ export function FeeSummaryTable({ student, payments = [], onPay, onEditConcessio
     { label: "concession fee", isConcession: true },
   ];
 
-  // Only show concession button if it's an admin or a cashier with Discount Permission
   const canEditDiscount = !cashierProfile || cashierProfile.has_discount_permission;
 
   return (

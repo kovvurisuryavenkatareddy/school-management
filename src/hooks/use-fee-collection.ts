@@ -62,9 +62,6 @@ export function useFeeCollection() {
 
   const searchStudent = useCallback(async (values: { roll_number: string; academic_year_id?: string }) => {
     setIsSearching(true);
-    setStudentRecords([]);
-    setPayments([]);
-    setInvoices([]);
     
     const { data: allStudentRecords, error } = await supabase
       .from("students")
@@ -94,9 +91,20 @@ export function useFeeCollection() {
 
   const refetchStudent = useCallback(async () => {
     if (studentRecords.length > 0) {
-      await searchStudent({ roll_number: studentRecords[0].roll_number });
+      // Use the roll number from the current records to refresh
+      const roll = studentRecords[0].roll_number;
+      const { data: allStudentRecords } = await supabase
+        .from("students")
+        .select("*, student_types(name), academic_years(*)")
+        .eq("roll_number", roll)
+        .order('created_at', { ascending: false });
+
+      if (allStudentRecords) {
+        setStudentRecords(allStudentRecords as StudentDetails[]);
+        await fetchStudentFinancials(allStudentRecords.map(s => s.id));
+      }
     }
-  }, [studentRecords, searchStudent]);
+  }, [studentRecords, fetchStudentFinancials]);
 
   const logActivity = useCallback(async (action: string, details: object, studentId: string) => {
     let currentUser = sessionUser;
@@ -119,8 +127,7 @@ export function useFeeCollection() {
     const toastId = toast.loading("Reverting payment...");
     try {
       // 1. Identify if this was an invoice payment
-      if (payment.fee_type.startsWith("Invoice: ")) {
-        // We need to find the related invoice from activity logs since payments don't link directly
+      if (payment.fee_type.toLowerCase().startsWith("invoice:")) {
         const { data: log } = await supabase
           .from('activity_logs')
           .select('details')
@@ -128,7 +135,7 @@ export function useFeeCollection() {
           .eq('student_id', payment.student_id)
           .contains('details', { amount: payment.amount })
           .limit(1)
-          .single();
+          .maybeSingle();
         
         if (log && log.details.invoice_id) {
           const invId = log.details.invoice_id;
@@ -152,6 +159,8 @@ export function useFeeCollection() {
       await logActivity("Payment Reversal", { reverted_payment_id: payment.id, amount: payment.amount, fee_type: payment.fee_type }, payment.student_id);
 
       toast.success("Payment reverted successfully.", { id: toastId });
+      
+      // 4. Force a clean refresh of local state
       await refetchStudent();
     } catch (err: any) {
       toast.error(`Reversal failed: ${err.message}`, { id: toastId });
