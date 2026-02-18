@@ -14,7 +14,7 @@ export function useFeeCollection() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [cashierProfile, setCashierProfile] = useState<CashierProfile | null>(null);
-  const [userRole, setUserRole] = useState<'admin' | 'cashier' | null>(null);
+  const [userRole, setUserRole] = useState<'superior' | 'superadmin' | 'admin' | 'cashier' | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
@@ -24,12 +24,25 @@ export function useFeeCollection() {
       setSessionUser(user);
 
       if (user) {
-        const { data: profile } = await supabase.from('cashiers').select('id, name, has_discount_permission, has_expenses_permission, has_revert_permission').eq('user_id', user.id).maybeSingle();
+        // Fetch cashier profile if exists
+        const { data: profile } = await supabase
+          .from('cashiers')
+          .select('id, name, has_discount_permission, has_expenses_permission, has_revert_permission')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        
         setCashierProfile(profile);
-        if (profile) {
-          setUserRole('cashier');
+
+        // Determine granular role
+        const metadataRole = user.user_metadata?.role;
+        if (user.email === 'superior@gmail.com' || metadataRole === 'superior') {
+            setUserRole('superior');
+        } else if (user.email === 'superadmin@gmail.com' || metadataRole === 'superadmin') {
+            setUserRole('superadmin');
+        } else if (profile) {
+            setUserRole('cashier');
         } else {
-          setUserRole('admin');
+            setUserRole('admin');
         }
       }
 
@@ -91,20 +104,10 @@ export function useFeeCollection() {
 
   const refetchStudent = useCallback(async () => {
     if (studentRecords.length > 0) {
-      // Use the roll number from the current records to refresh
       const roll = studentRecords[0].roll_number;
-      const { data: allStudentRecords } = await supabase
-        .from("students")
-        .select("*, student_types(name), academic_years(*)")
-        .eq("roll_number", roll)
-        .order('created_at', { ascending: false });
-
-      if (allStudentRecords) {
-        setStudentRecords(allStudentRecords as StudentDetails[]);
-        await fetchStudentFinancials(allStudentRecords.map(s => s.id));
-      }
+      await searchStudent({ roll_number: roll });
     }
-  }, [studentRecords, fetchStudentFinancials]);
+  }, [studentRecords, searchStudent]);
 
   const logActivity = useCallback(async (action: string, details: object, studentId: string) => {
     let currentUser = sessionUser;
@@ -124,46 +127,32 @@ export function useFeeCollection() {
   }, [sessionUser, cashierProfile]);
 
   const revertPayment = useCallback(async (payment: Payment) => {
-    const toastId = toast.loading("Reverting payment...");
+    const toastId = toast.loading("Processing reversal...");
     try {
-      // 1. Identify if this was an invoice payment
-      if (payment.fee_type.toLowerCase().startsWith("invoice:")) {
-        const { data: log } = await supabase
-          .from('activity_logs')
-          .select('details')
-          .eq('action', 'Invoice Payment')
-          .eq('student_id', payment.student_id)
-          .contains('details', { amount: payment.amount })
-          .limit(1)
-          .maybeSingle();
-        
-        if (log && log.details.invoice_id) {
-          const invId = log.details.invoice_id;
-          const { data: invoice } = await supabase.from('invoices').select('paid_amount').eq('id', invId).single();
-          
-          if (invoice) {
-            const newPaid = Math.max(0, (invoice.paid_amount || 0) - payment.amount);
-            await supabase.from('invoices').update({ 
-                paid_amount: newPaid, 
-                status: 'unpaid' 
-            }).eq('id', invId);
-          }
-        }
+      // Use the internal API to perform the deletion and invoice update
+      // this bypasses client-side RLS delete restrictions for authenticated admins/permitted cashiers
+      const response = await fetch('/api/payments/revert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_id: payment.id }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to revert payment.");
       }
 
-      // 2. Delete the payment record
-      const { error: deleteError } = await supabase.from('payments').delete().eq('id', payment.id);
-      if (deleteError) throw deleteError;
-
-      // 3. Log the reversal
-      await logActivity("Payment Reversal", { reverted_payment_id: payment.id, amount: payment.amount, fee_type: payment.fee_type }, payment.student_id);
+      await logActivity("Payment Reversal", { 
+        reverted_payment_id: payment.id, 
+        amount: payment.amount, 
+        fee_type: payment.fee_type 
+      }, payment.student_id);
 
       toast.success("Payment reverted successfully.", { id: toastId });
-      
-      // 4. Force a clean refresh of local state
       await refetchStudent();
     } catch (err: any) {
-      toast.error(`Reversal failed: ${err.message}`, { id: toastId });
+      toast.error(err.message, { id: toastId });
     }
   }, [logActivity, refetchStudent]);
 
