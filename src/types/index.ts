@@ -71,6 +71,7 @@ export type Payment = {
   notes: string | null;
   utr_number: string | null;
   receipt_number: number;
+  cashier_id: string | null;
   students?: { name: string; roll_number: string };
 };
 
@@ -83,6 +84,7 @@ export type CashierProfile = {
   name: string;
   has_discount_permission: boolean;
   has_expenses_permission: boolean;
+  has_revert_permission: boolean;
 };
 
 export type TermFeeSummary = {

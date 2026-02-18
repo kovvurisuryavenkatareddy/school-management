@@ -24,7 +24,7 @@ export function useFeeCollection() {
       setSessionUser(user);
 
       if (user) {
-        const { data: profile } = await supabase.from('cashiers').select('id, name, has_discount_permission, has_expenses_permission').eq('user_id', user.id).single();
+        const { data: profile } = await supabase.from('cashiers').select('id, name, has_discount_permission, has_expenses_permission, has_revert_permission').eq('user_id', user.id).maybeSingle();
         setCashierProfile(profile);
         if (profile) {
           setUserRole('cashier');
@@ -99,29 +99,64 @@ export function useFeeCollection() {
   }, [studentRecords, searchStudent]);
 
   const logActivity = useCallback(async (action: string, details: object, studentId: string) => {
-    // If we don't have a user session in state, fetch it on the fly to be safe
     let currentUser = sessionUser;
     if (!currentUser) {
       const { data } = await supabase.auth.getUser();
       currentUser = data.user;
     }
 
-    if (!currentUser) {
-      console.warn("No active session found. Activity not logged.");
-      return;
-    }
+    if (!currentUser) return;
 
-    const { error } = await supabase.from('activity_logs').insert({
+    await supabase.from('activity_logs').insert({
       cashier_id: cashierProfile?.id || null,
       student_id: studentId,
       action,
       details,
     });
-
-    if (error) {
-      console.error("Logging failed:", error.message);
-    }
   }, [sessionUser, cashierProfile]);
+
+  const revertPayment = useCallback(async (payment: Payment) => {
+    const toastId = toast.loading("Reverting payment...");
+    try {
+      // 1. Identify if this was an invoice payment
+      if (payment.fee_type.startsWith("Invoice: ")) {
+        // We need to find the related invoice from activity logs since payments don't link directly
+        const { data: log } = await supabase
+          .from('activity_logs')
+          .select('details')
+          .eq('action', 'Invoice Payment')
+          .eq('student_id', payment.student_id)
+          .contains('details', { amount: payment.amount })
+          .limit(1)
+          .single();
+        
+        if (log && log.details.invoice_id) {
+          const invId = log.details.invoice_id;
+          const { data: invoice } = await supabase.from('invoices').select('paid_amount').eq('id', invId).single();
+          
+          if (invoice) {
+            const newPaid = Math.max(0, (invoice.paid_amount || 0) - payment.amount);
+            await supabase.from('invoices').update({ 
+                paid_amount: newPaid, 
+                status: 'unpaid' 
+            }).eq('id', invId);
+          }
+        }
+      }
+
+      // 2. Delete the payment record
+      const { error: deleteError } = await supabase.from('payments').delete().eq('id', payment.id);
+      if (deleteError) throw deleteError;
+
+      // 3. Log the reversal
+      await logActivity("Payment Reversal", { reverted_payment_id: payment.id, amount: payment.amount, fee_type: payment.fee_type }, payment.student_id);
+
+      toast.success("Payment reverted successfully.", { id: toastId });
+      await refetchStudent();
+    } catch (err: any) {
+      toast.error(`Reversal failed: ${err.message}`, { id: toastId });
+    }
+  }, [logActivity, refetchStudent]);
 
   return {
     state: {
@@ -138,6 +173,7 @@ export function useFeeCollection() {
       searchStudent,
       refetchStudent,
       logActivity,
+      revertPayment,
     },
   };
 }

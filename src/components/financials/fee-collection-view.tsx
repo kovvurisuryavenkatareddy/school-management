@@ -11,7 +11,7 @@ import { BulkPaymentUpload } from "@/components/fee-collection/BulkPaymentUpload
 export function FeeCollectionView() {
   const { state, actions } = useFeeCollection();
   const { academicYears, isSearching, studentRecords, payments, invoices, cashierProfile, userRole, isInitializing } = state;
-  const { searchStudent, refetchStudent, logActivity } = actions;
+  const { searchStudent, refetchStudent, logActivity, revertPayment } = actions;
 
   const hasStudent = studentRecords.length > 0;
 
@@ -32,7 +32,9 @@ export function FeeCollectionView() {
         isInitializing={isInitializing}
       />
 
-      {userRole === 'admin' && <BulkPaymentUpload cashierProfile={cashierProfile} academicYears={academicYears} />}
+      {(userRole === 'admin' || userRole === 'superadmin' || userRole === 'superior') && (
+        <BulkPaymentUpload cashierProfile={cashierProfile} academicYears={academicYears} />
+      )}
 
       {hasStudent && (
         <>
@@ -56,6 +58,8 @@ export function FeeCollectionView() {
               payments={payments}
               student={studentRecords[0]}
               cashierProfile={cashierProfile}
+              onRevert={revertPayment}
+              userRole={userRole}
             />
           </div>
         </>
