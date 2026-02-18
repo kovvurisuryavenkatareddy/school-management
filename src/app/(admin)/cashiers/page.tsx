@@ -79,9 +79,9 @@ const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   phone: z.string().optional(),
-  has_discount_permission: z.boolean(),
-  has_expenses_permission: z.boolean(),
-  has_revert_permission: z.boolean(),
+  has_discount_permission: z.boolean().default(false),
+  has_expenses_permission: z.boolean().default(false),
+  has_revert_permission: z.boolean().default(false),
   password: z.string().optional(),
 });
 
@@ -108,7 +108,15 @@ export default function CashiersPage() {
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: "", email: "", phone: "", has_discount_permission: false, has_expenses_permission: false, has_revert_permission: false, password: "" },
+    defaultValues: { 
+      name: "", 
+      email: "", 
+      phone: "", 
+      has_discount_permission: false, 
+      has_expenses_permission: false, 
+      has_revert_permission: false, 
+      password: "" 
+    },
   });
 
   const passwordForm = useForm<z.infer<typeof passwordSchema>>({
@@ -127,8 +135,10 @@ export default function CashiersPage() {
       .order("created_at", { ascending: false })
       .range(from, to);
 
-    if (error) toast.error("Failed to fetch cashiers.");
-    else {
+    if (error) {
+      toast.error("Failed to fetch cashiers.");
+      console.error(error);
+    } else {
       setCashiers(data || []);
       setTotalCount(count || 0);
     }
@@ -144,14 +154,16 @@ export default function CashiersPage() {
     
     if (editingCashier) {
       const { error } = await supabase.from("cashiers").update({ 
-        name: values.name, phone: values.phone,
+        name: values.name, 
+        phone: values.phone || null,
         has_discount_permission: values.has_discount_permission,
         has_expenses_permission: values.has_expenses_permission,
         has_revert_permission: values.has_revert_permission,
       }).eq("id", editingCashier.id);
       
-      if (error) toast.error(`Update failed: ${error.message}`);
-      else {
+      if (error) {
+        toast.error(`Update failed: ${error.message}`);
+      } else {
         toast.success("Cashier updated successfully!");
         await fetchCashiers();
         setDialogOpen(false);
@@ -162,10 +174,15 @@ export default function CashiersPage() {
         setIsSubmitting(false);
         return;
       }
-      const response = await fetch('/api/cashiers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
+      const response = await fetch('/api/cashiers', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(values) 
+      });
       const result = await response.json();
-      if (!response.ok) toast.error(`Failed to create cashier: ${result.error || 'An unknown error occurred.'}`);
-      else {
+      if (!response.ok) {
+        toast.error(`Failed to create cashier: ${result.error || 'An unknown error occurred.'}`);
+      } else {
         toast.success("Cashier created successfully!");
         await fetchCashiers();
         setDialogOpen(false);
@@ -177,10 +194,15 @@ export default function CashiersPage() {
   const onPasswordSubmit = async (values: z.infer<typeof passwordSchema>) => {
     if (!cashierForPassword) return;
     setIsSubmitting(true);
-    const response = await fetch('/api/cashiers', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: cashierForPassword.user_id, password: values.password }) });
+    const response = await fetch('/api/cashiers', { 
+      method: 'PATCH', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify({ user_id: cashierForPassword.user_id, password: values.password }) 
+    });
     const result = await response.json();
-    if (!response.ok) toast.error(`Failed to update password: ${result.error || 'An unknown error occurred.'}`);
-    else {
+    if (!response.ok) {
+      toast.error(`Failed to update password: ${result.error || 'An unknown error occurred.'}`);
+    } else {
       toast.success("Password reset successfully!");
       setPasswordDialogOpen(false);
     }
@@ -199,8 +221,9 @@ export default function CashiersPage() {
       body: JSON.stringify({ user_ids: uids }),
     });
 
-    if (!response.ok) toast.error(`Failed to delete cashier(s).`);
-    else {
+    if (!response.ok) {
+      toast.error(`Failed to delete cashier(s).`);
+    } else {
       toast.success("Cashier(s) deleted successfully!");
       fetchCashiers();
       setSelectedItems([]);
@@ -220,7 +243,15 @@ export default function CashiersPage() {
   useEffect(() => {
     if (!dialogOpen) {
       setEditingCashier(null);
-      form.reset({ name: "", email: "", phone: "", has_discount_permission: false, has_expenses_permission: false, has_revert_permission: false, password: "" });
+      form.reset({ 
+        name: "", 
+        email: "", 
+        phone: "", 
+        has_discount_permission: false, 
+        has_expenses_permission: false, 
+        has_revert_permission: false, 
+        password: "" 
+      });
     }
   }, [dialogOpen, form]);
 
@@ -289,27 +320,32 @@ export default function CashiersPage() {
                           <FormMessage />
                         </FormItem>
                       )} />
-                      <div className="grid grid-cols-1 gap-2">
-                        <FormField control={form.control} name="has_discount_permission" render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                            <div className="space-y-0.5"><FormLabel>Discount Permission</FormLabel></div>
-                            <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                          </FormItem>
-                        )} />
-                        <FormField control={form.control} name="has_expenses_permission" render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                            <div className="space-y-0.5"><FormLabel>Expenses Permission</FormLabel></div>
-                            <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                          </FormItem>
-                        )} />
-                        <FormField control={form.control} name="has_revert_permission" render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                            <div className="space-y-0.5"><FormLabel>Revert Payment Permission</FormLabel></div>
-                            <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                          </FormItem>
-                        )} />
+                      
+                      <div className="space-y-3 pt-2">
+                        <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-widest">Specific Permissions</h4>
+                        <div className="grid grid-cols-1 gap-2">
+                          <FormField control={form.control} name="has_discount_permission" render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                              <div className="space-y-0.5"><FormLabel className="text-sm">Allow Concessions</FormLabel></div>
+                              <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                            </FormItem>
+                          )} />
+                          <FormField control={form.control} name="has_expenses_permission" render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                              <div className="space-y-0.5"><FormLabel className="text-sm">Allow Expenses</FormLabel></div>
+                              <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                            </FormItem>
+                          )} />
+                          <FormField control={form.control} name="has_revert_permission" render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                              <div className="space-y-0.5"><FormLabel className="text-sm">Allow Revert Payment</FormLabel></div>
+                              <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                            </FormItem>
+                          )} />
+                        </div>
                       </div>
-                      <DialogFooter>
+
+                      <DialogFooter className="pt-4">
                         <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
                         <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
                       </DialogFooter>
@@ -332,30 +368,41 @@ export default function CashiersPage() {
                 </TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Discount</TableHead>
-                <TableHead>Expenses</TableHead>
-                <TableHead>Revert</TableHead>
+                <TableHead className="text-center">Concession</TableHead>
+                <TableHead className="text-center">Expenses</TableHead>
+                <TableHead className="text-center">Revert</TableHead>
                 <TableHead><span className="sr-only">Actions</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={7} className="text-center">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8">Loading accounts...</TableCell></TableRow>
               ) : cashiers.length > 0 ? (
                 cashiers.map((cashier) => (
                   <TableRow key={cashier.id}>
                     <TableCell><Checkbox checked={selectedItems.includes(cashier.id)} onCheckedChange={(checked) => handleSelectItem(cashier.id, !!checked)} /></TableCell>
                     <TableCell className="font-medium">{cashier.name}</TableCell>
-                    <TableCell>{cashier.email}</TableCell>
-                    <TableCell>{cashier.has_discount_permission ? <Badge>Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
-                    <TableCell>{cashier.has_expenses_permission ? <Badge>Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
-                    <TableCell>{cashier.has_revert_permission ? <Badge>Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
+                    <TableCell className="text-xs">{cashier.email}</TableCell>
+                    <TableCell className="text-center">{cashier.has_discount_permission ? <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
+                    <TableCell className="text-center">{cashier.has_expenses_permission ? <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
+                    <TableCell className="text-center">{cashier.has_revert_permission ? <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild><Button aria-haspopup="true" size="icon" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem onSelect={() => { setEditingCashier(cashier); form.reset({ ...cashier, phone: cashier.phone ?? "", password: "" }); setDialogOpen(true); }}><Pencil className="mr-2 h-4 w-4" />Edit Profile</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => { 
+                            setEditingCashier(cashier); 
+                            form.reset({ 
+                              ...cashier, 
+                              phone: cashier.phone ?? "", 
+                              password: "",
+                              has_discount_permission: !!cashier.has_discount_permission,
+                              has_expenses_permission: !!cashier.has_expenses_permission,
+                              has_revert_permission: !!cashier.has_revert_permission
+                            }); 
+                            setDialogOpen(true); 
+                          }}><Pencil className="mr-2 h-4 w-4" />Edit Profile</DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => { setCashierForPassword(cashier); setPasswordDialogOpen(true); }}><KeyRound className="mr-2 h-4 w-4" />Change Password</DropdownMenuItem>
                           <DropdownMenuItem className="text-red-600" onSelect={() => { setItemsToDelete([cashier.id]); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete Account</DropdownMenuItem>
                         </DropdownMenuContent>
@@ -364,7 +411,7 @@ export default function CashiersPage() {
                   </TableRow>
                 ))
               ) : (
-                <TableRow><TableCell colSpan={7} className="text-center">No cashiers found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No cashiers found.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
