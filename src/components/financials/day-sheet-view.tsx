@@ -18,41 +18,61 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Calendar as CalendarIcon, ArrowUpCircle, ArrowDownCircle, Wallet, FileSpreadsheet } from "lucide-react";
+import { 
+    Loader2, 
+    Calendar as CalendarIcon, 
+    ArrowUpCircle, 
+    ArrowDownCircle, 
+    Wallet, 
+    FileSpreadsheet 
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import Papa from "papaparse";
+import { format, startOfDay, endOfDay } from "date-fns";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { DateRange } from "react-day-picker";
 
 export function DaySheetView() {
-  const today = new Date().toISOString().split('T')[0];
-  const [fromDate, setFromDate] = useState<string>(today);
-  const [toDate, setToDate] = useState<string>(today);
+  const [date, setDate] = useState<DateRange | undefined>({
+    from: new Date(),
+    to: new Date(),
+  });
+  
   const [isLoading, setIsLoading] = useState(false);
   const [data, setData] = useState<{ payments: any[], expenses: any[] }>({ payments: [], expenses: [] });
 
   const fetchData = async () => {
+    if (!date?.from) return;
+    
     setIsLoading(true);
     
-    // Create UTC range for payments (timestamp)
-    const startRange = `${fromDate}T00:00:00Z`;
-    const endRange = `${toDate}T23:59:59Z`;
+    const fromStr = startOfDay(date.from).toISOString();
+    const toStr = endOfDay(date.to || date.from).toISOString();
+    
+    // For expenses, we use the simple date string comparison
+    const expenseFrom = format(date.from, "yyyy-MM-dd");
+    const expenseTo = format(date.to || date.from, "yyyy-MM-dd");
 
     try {
       const [paymentsRes, expensesRes] = await Promise.all([
         supabase
           .from('payments')
           .select('*, students(name, roll_number), cashiers(name)')
-          .gte('created_at', startRange)
-          .lte('created_at', endRange)
+          .gte('created_at', fromStr)
+          .lte('created_at', toStr)
           .order('created_at', { ascending: true }),
         supabase
           .from('expenses')
           .select('*, departments(name), cashiers(name)')
-          .gte('expense_date', fromDate)
-          .lte('expense_date', toDate)
+          .gte('expense_date', expenseFrom)
+          .lte('expense_date', expenseTo)
           .order('expense_date', { ascending: true })
       ]);
 
@@ -72,7 +92,7 @@ export function DaySheetView() {
 
   useEffect(() => {
     fetchData();
-  }, [fromDate, toDate]);
+  }, [date]);
 
   const totals = useMemo(() => {
     const income = data.payments.reduce((sum, p) => sum + p.amount, 0);
@@ -81,19 +101,19 @@ export function DaySheetView() {
   }, [data]);
 
   const handleExportExcel = () => {
+    if (!date?.from) return;
     if (data.payments.length === 0 && data.expenses.length === 0) {
       toast.error("No data available to export for the selected range.");
       return;
     }
 
-    const reportRows: any[] = [];
-    
-    // Header Info
-    reportRows.push(["CONSOLIDATED CASH FLOW REPORT"]);
-    reportRows.push([`Period: ${fromDate} to ${toDate}`]);
-    reportRows.push([]);
+    const fromLabel = format(date.from, "yyyy-MM-dd");
+    const toLabel = format(date.to || date.from, "yyyy-MM-dd");
 
-    // Income Section
+    const reportRows: any[] = [];
+    reportRows.push(["CONSOLIDATED CASH FLOW REPORT"]);
+    reportRows.push([`Period: ${fromLabel} to ${toLabel}`]);
+    reportRows.push([]);
     reportRows.push(["INCOME (COLLECTIONS)"]);
     reportRows.push(["Date", "Roll Number", "Student Name", "Fee Description", "Mode", "Collected By", "Amount"]);
     data.payments.forEach(p => {
@@ -109,8 +129,6 @@ export function DaySheetView() {
     });
     reportRows.push(["", "", "", "", "", "TOTAL INCOME:", totals.income]);
     reportRows.push([]);
-
-    // Expense Section
     reportRows.push(["EXPENDITURE (EXPENSES)"]);
     reportRows.push(["Date", "Department", "Description", "Mode", "Recorded By", "Amount"]);
     data.expenses.forEach(e => {
@@ -125,17 +143,14 @@ export function DaySheetView() {
     });
     reportRows.push(["", "", "", "", "TOTAL EXPENDITURE:", totals.expense]);
     reportRows.push([]);
-
-    // Final Summary
     reportRows.push(["SUMMARY"]);
     reportRows.push(["Net Day Balance:", totals.balance]);
 
     const csv = Papa.unparse(reportRows);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `CashFlow_Report_${fromDate}_to_${toDate}.csv`);
+    link.href = URL.createObjectURL(blob);
+    link.download = `CashFlow_Report_${fromLabel}_to_${toLabel}.csv`;
     link.click();
     toast.success("Excel report downloaded successfully!");
   };
@@ -146,34 +161,46 @@ export function DaySheetView() {
         <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2">
           <div className="space-y-1">
             <CardTitle>Daily Transaction Sheet</CardTitle>
-            <CardDescription>Consolidated view of all cash flows for the selected period.</CardDescription>
+            <CardDescription>Consolidated view of all cash flows. Select a range in the calendar.</CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="from-date" className="text-xs font-bold text-muted-foreground uppercase">From</Label>
-              <div className="relative">
-                <CalendarIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  id="from-date"
-                  type="date" 
-                  value={fromDate} 
-                  onChange={(e) => setFromDate(e.target.value)} 
-                  className="pl-9 w-[150px] h-9"
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="to-date" className="text-xs font-bold text-muted-foreground uppercase">To</Label>
-              <div className="relative">
-                <CalendarIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  id="to-date"
-                  type="date" 
-                  value={toDate} 
-                  onChange={(e) => setToDate(e.target.value)} 
-                  className="pl-9 w-[150px] h-9"
-                />
-              </div>
+            <div className="grid gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="date"
+                    variant={"outline"}
+                    className={cn(
+                      "w-[260px] justify-start text-left font-normal h-9",
+                      !date && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {date?.from ? (
+                      date.to ? (
+                        <>
+                          {format(date.from, "LLL dd, y")} -{" "}
+                          {format(date.to, "LLL dd, y")}
+                        </>
+                      ) : (
+                        format(date.from, "LLL dd, y")
+                      )
+                    ) : (
+                      <span>Pick a date range</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={date?.from}
+                    selected={date}
+                    onSelect={setDate}
+                    numberOfMonths={2}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <Button variant="outline" size="sm" onClick={handleExportExcel} className="gap-2 h-9 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
               <FileSpreadsheet className="h-4 w-4" />
