@@ -21,7 +21,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Loader2, Calendar as CalendarIcon, ArrowUpCircle, ArrowDownCircle, Wallet, FileSpreadsheet, Download } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Calendar as CalendarIcon, ArrowUpCircle, ArrowDownCircle, Wallet, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Papa from "papaparse";
 
