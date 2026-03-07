@@ -279,9 +279,17 @@ export default function ExpensesPage() {
     if (userRole === 'cashier' && cashierProfile) {
       paymentsQuery = paymentsQuery.eq('cashier_id', cashierProfile.id);
       expensesQuery = expensesQuery.eq('cashier_id', cashierProfile.id);
-    } else if (userRole === 'admin' && selectedCashier && selectedCashier !== 'all') {
-      paymentsQuery = paymentsQuery.eq('cashier_id', selectedCashier);
-      expensesQuery = expensesQuery.eq('cashier_id', selectedCashier);
+    } else if (userRole === 'admin') {
+      if (selectedCashier && selectedCashier !== 'all') {
+        paymentsQuery = paymentsQuery.eq('cashier_id', selectedCashier);
+        expensesQuery = expensesQuery.eq('cashier_id', selectedCashier);
+      }
+      
+      // Apply Payment Mode filter to report queries
+      if (selectedPaymentMode && selectedPaymentMode !== 'all') {
+        expensesQuery = expensesQuery.eq('payment_mode', selectedPaymentMode);
+        paymentsQuery = paymentsQuery.eq('payment_method', selectedPaymentMode.toLowerCase());
+      }
     }
 
     const [paymentsRes, expensesRes] = await Promise.all([paymentsQuery, expensesQuery]);
