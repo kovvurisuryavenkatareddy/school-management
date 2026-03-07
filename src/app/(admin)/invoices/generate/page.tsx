@@ -32,6 +32,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 type FeeStructure = { id: string; fee_name: string; amount: number };
 type StudentType = { id: string; name: string };
 type ClassGroup = { id: string; name: string };
+type StudyingYear = { id: string; name: string };
 
 const formSchema = z.object({
   fee_structure_ids: z.array(z.string()).min(1, "Please select at least one fee type"),
@@ -39,6 +40,7 @@ const formSchema = z.object({
   class_filters: z.array(z.string()).min(1, "At least one class is required"),
   section_filters: z.array(z.string()).min(1, "At least one section is required"),
   student_type_filters: z.array(z.string()).min(1, "At least one student type is required"),
+  studying_year_filters: z.array(z.string()).min(1, "At least one studying year is required"),
   penalty_amount: z.coerce.number().min(0, "Penalty must be 0 or more"),
 });
 
@@ -47,6 +49,7 @@ export default function GenerateInvoicesPage() {
   const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([]);
   const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
   const [classGroups, setClassGroups] = useState<ClassGroup[]>([]);
+  const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -56,20 +59,23 @@ export default function GenerateInvoicesPage() {
       class_filters: [], 
       section_filters: [], 
       student_type_filters: [],
+      studying_year_filters: [],
       fee_structure_ids: []
     },
   });
 
   useEffect(() => {
     const fetchData = async () => {
-      const [feesRes, typesRes, groupsRes] = await Promise.all([
+      const [feesRes, typesRes, groupsRes, syRes] = await Promise.all([
         supabase.from("fee_structures").select("id, fee_name, amount"),
         supabase.from("student_types").select("id, name"),
         supabase.from("class_groups").select("id, name"),
+        supabase.from("studying_years").select("id, name"),
       ]);
       if (feesRes.data) setFeeStructures(feesRes.data);
       if (typesRes.data) setStudentTypes(typesRes.data);
       if (groupsRes.data) setClassGroups(groupsRes.data);
+      if (syRes.data) setStudyingYears(syRes.data);
     };
     fetchData();
   }, []);
@@ -81,11 +87,12 @@ export default function GenerateInvoicesPage() {
     try {
       let studentQuery = supabase
         .from('students')
-        .select('id, class, section, student_type_id');
+        .select('id, class, section, student_type_id, studying_year');
         
       studentQuery = studentQuery.in('class', values.class_filters);
       studentQuery = studentQuery.in('section', values.section_filters);
       studentQuery = studentQuery.in('student_type_id', values.student_type_filters);
+      studentQuery = studentQuery.in('studying_year', values.studying_year_filters);
       
       const { data: students, error: studentError } = await studentQuery;
 
@@ -210,6 +217,21 @@ export default function GenerateInvoicesPage() {
                       value={field.value} 
                       onChange={field.onChange} 
                       placeholder="Select target sections..."
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
+              <FormField control={form.control} name="studying_year_filters" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Studying Years</FormLabel>
+                  <FormControl>
+                    <MultiSelect 
+                      options={studyingYears.map(sy => ({ label: sy.name, value: sy.name }))} 
+                      value={field.value} 
+                      onChange={field.onChange} 
+                      placeholder="Select target years (1st, 2nd, etc.)..."
                     />
                   </FormControl>
                   <FormMessage />
