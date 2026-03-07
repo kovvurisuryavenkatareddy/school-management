@@ -1,14 +1,14 @@
 "use client";
 
-import React from "react";
-import { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Invoice, StudentDetails, CashierProfile, Payment } from "@/types";
+import { Invoice, StudentDetails, CashierProfile, Payment, StudyingYear } from "@/types";
 import { InvoicePaymentDialog } from "./InvoicePaymentDialog";
 import { generateReceiptHtml } from "@/lib/receipt-generator";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 interface OutstandingInvoicesProps {
   invoices: Invoice[];
@@ -22,6 +22,15 @@ interface OutstandingInvoicesProps {
 export function OutstandingInvoices({ invoices, studentRecords, cashierProfile, onSuccess, logActivity, isReadOnly = false }: OutstandingInvoicesProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [invoiceToPay, setInvoiceToPay] = useState<Invoice | null>(null);
+  const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
+
+  useEffect(() => {
+    const fetchYears = async () => {
+      const { data } = await supabase.from('studying_years').select('*').order('name', { ascending: true });
+      if (data) setStudyingYears(data);
+    };
+    fetchYears();
+  }, []);
 
   const handlePayClick = (invoice: Invoice) => {
     setInvoiceToPay(invoice);
@@ -89,6 +98,7 @@ export function OutstandingInvoices({ invoices, studentRecords, cashierProfile, 
           cashierProfile={cashierProfile}
           onSuccess={handlePaymentSuccess}
           logActivity={logActivity}
+          studyingYears={studyingYears}
         />
       )}
     </>

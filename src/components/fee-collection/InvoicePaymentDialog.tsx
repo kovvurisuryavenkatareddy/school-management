@@ -12,9 +12,10 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Invoice, StudentDetails, CashierProfile, Payment } from "@/types";
+import { Invoice, StudentDetails, CashierProfile, Payment, StudyingYear } from "@/types";
 
 const invoicePaymentSchema = z.object({
+  year: z.string().min(1, "Please select a year"),
   amount: z.coerce.number().min(0.01, "Amount must be greater than 0"),
   payment_method: z.enum(["cash", "upi"]),
   notes: z.string().optional(),
@@ -37,9 +38,10 @@ interface InvoicePaymentDialogProps {
   cashierProfile: CashierProfile | null;
   onSuccess: (newPayment: Payment, studentRecord: StudentDetails) => void;
   logActivity: (action: string, details: object, studentId: string) => Promise<void>;
+  studyingYears: StudyingYear[];
 }
 
-export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecords, cashierProfile, onSuccess, logActivity }: InvoicePaymentDialogProps) {
+export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecords, cashierProfile, onSuccess, logActivity, studyingYears }: InvoicePaymentDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const form = useForm<z.infer<typeof invoicePaymentSchema>>({
     resolver: zodResolver(invoicePaymentSchema),
@@ -50,14 +52,17 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
   useEffect(() => {
     if (invoice && open) {
       const remainingBalance = invoice.total_amount - (invoice.paid_amount || 0);
+      const student = studentRecords[0];
+      
       form.reset({
+        year: student?.studying_year || "",
         amount: parseFloat(remainingBalance.toFixed(2)),
         payment_method: "cash",
         notes: "",
         utr_number: "",
       });
     }
-  }, [invoice, open, form]);
+  }, [invoice, open, form, studentRecords]);
 
   const onSubmit = async (values: z.infer<typeof invoicePaymentSchema>) => {
     const studentRecordForPayment = studentRecords[0];
@@ -67,8 +72,8 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
     }
     setIsSubmitting(true);
 
-    // fee_type for invoices is just the descriptive label, it won't affect the summary table logic
-    const feeTypeLabel = `Invoice: ${invoice.batch_description}`;
+    // Prepend the selected year to the fee type label for the receipt generator
+    const feeTypeLabel = `${values.year} - Invoice: ${invoice.batch_description}`;
 
     const paymentData = {
       student_id: studentRecordForPayment.id,
@@ -99,6 +104,7 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
       toast.error(`Payment recorded, but failed to update invoice status: ${invoiceError.message}`);
     } else {
       await logActivity("Invoice Payment", { 
+        year: values.year,
         description: invoice.batch_description, 
         amount: values.amount,
         invoice_id: invoice.id 
@@ -123,6 +129,19 @@ export function InvoicePaymentDialog({ open, onOpenChange, invoice, studentRecor
         </div>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField control={form.control} name="year" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Year for Receipt</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl><SelectTrigger><SelectValue placeholder="Select year" /></SelectTrigger></FormControl>
+                  <SelectContent>
+                    {studyingYears.map(y => <SelectItem key={y.id} value={y.name}>{y.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )} />
+
             <FormField control={form.control} name="amount" render={({ field }) => (
               <FormItem><FormLabel className="font-bold">Amount to Collect</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
             )} />

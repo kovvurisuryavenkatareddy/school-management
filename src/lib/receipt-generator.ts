@@ -25,6 +25,12 @@ export async function generateReceiptHtml(student: StudentDetails, payment: Paym
 
   const receiptNo = String(payment.receipt_number).padStart(6, '0');
 
+  // Extract year from fee_type if it follows the "{Year} - {Description}" pattern
+  const feeTypeParts = payment.fee_type.split(' - ');
+  const displayYear = (feeTypeParts.length > 1 && feeTypeParts[0].includes('Year')) 
+    ? feeTypeParts[0] 
+    : student.studying_year;
+
   const paymentDetailsRow = payment.payment_method === 'upi' && payment.utr_number
     ? `<strong>Payment Mode:</strong> UPI | <strong>UTR:</strong> ${payment.utr_number}`
     : `<strong>Payment Mode:</strong> Cash`;
@@ -69,7 +75,7 @@ export async function generateReceiptHtml(student: StudentDetails, payment: Paym
               <td>${student.roll_number}</td>
               <td>${student.name}</td>
               <td>${student.class} - ${student.section}</td>
-              <td>${student.studying_year}</td>
+              <td>${displayYear}</td>
             </tr>
             <tr>
               <td colspan="2"><strong>Fee Type/Name:</strong> ${payment.fee_type}</td>
