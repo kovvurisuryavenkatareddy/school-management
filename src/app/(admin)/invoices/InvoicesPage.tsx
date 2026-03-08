@@ -231,7 +231,6 @@ export default function InvoicesPage() {
     const toastId = toast.loading("Applying batch changes...");
 
     // Update batch metadata and common invoice fields
-    // Note: Changing filters here only updates the description/metadata, not the student membership
     const { error } = await supabase
       .from("invoices")
       .update({
@@ -387,6 +386,14 @@ export default function InvoicesPage() {
           <ScrollArea className="max-h-[85vh] pr-4 pt-4">
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-6">
+                <FormField control={form.control} name="batch_description" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl><Input {...field} placeholder="Enter batch description..." /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <FormField control={form.control} name="fee_structure_ids" render={({ field }) => (
                     <FormItem>
@@ -469,14 +476,6 @@ export default function InvoicesPage() {
 
                   <FormField control={form.control} name="penalty_amount_per_day" render={({ field }) => (
                     <FormItem><FormLabel>Late Penalty (Per Day)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
-                  )} />
-
-                  <FormField control={form.control} name="batch_description" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Manual Batch Label</FormLabel>
-                      <FormControl><Input {...field} placeholder="Enter a descriptive label..." /></FormControl>
-                      <FormMessage />
-                    </FormItem>
                   )} />
                 </div>
 
