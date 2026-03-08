@@ -27,7 +27,8 @@ export async function POST(request: Request) {
     }
 
     // 2. Handle Invoice linkage if applicable
-    if (payment.fee_type.startsWith("Invoice: ")) {
+    // Changed .startsWith to .includes to account for year prefixes like "1st Year - Invoice: ..."
+    if (payment.fee_type.includes("Invoice: ")) {
       // Try to find the related invoice from activity logs
       const { data: log } = await supabaseAdmin
         .from('activity_logs')
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
         .eq('action', 'Invoice Payment')
         .eq('student_id', payment.student_id)
         .contains('details', { amount: payment.amount })
+        .order('timestamp', { ascending: false })
         .limit(1)
         .maybeSingle();
       
