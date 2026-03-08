@@ -84,30 +84,47 @@ export default function GenerateInvoicesPage() {
     fetchData();
   }, []);
 
+  const fetchAllMatchingStudents = async (values: z.infer<typeof formSchema>) => {
+    let allStudents: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    
+    while (true) {
+      let query = supabase
+        .from('students')
+        .select('id, class, section, student_type_id, studying_year')
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+        
+      query = query.in('class', values.class_filters);
+      query = query.in('section', values.section_filters);
+      query = query.in('student_type_id', values.student_type_filters);
+      query = query.in('studying_year', values.studying_year_filters);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      
+      allStudents = [...allStudents, ...data];
+      if (data.length < pageSize) break;
+      page++;
+    }
+    return allStudents;
+  };
+
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
-    const toastId = toast.loading("Querying matched students...");
+    const toastId = toast.loading("Fetching all matched students...");
     
     try {
-      let studentQuery = supabase
-        .from('students')
-        .select('id, class, section, student_type_id, studying_year');
-        
-      studentQuery = studentQuery.in('class', values.class_filters);
-      studentQuery = studentQuery.in('section', values.section_filters);
-      studentQuery = studentQuery.in('student_type_id', values.student_type_filters);
-      studentQuery = studentQuery.in('studying_year', values.studying_year_filters);
-      
-      const { data: students, error: studentError } = await studentQuery;
+      const students = await fetchAllMatchingStudents(values);
 
-      if (studentError) throw studentError;
       if (!students || students.length === 0) {
-        toast.warning("No students found matching the selected criteria. Check if sections or years match exactly.", { id: toastId });
+        toast.warning("No students found matching the selected criteria.", { id: toastId });
         setIsSubmitting(false);
         return;
       }
 
-      toast.loading(`Generating invoices for ${students.length} students...`, { id: toastId });
+      toast.loading(`Generating invoices for ${students.length} students across selected fee types...`, { id: toastId });
 
       let totalInvoicesCreated = 0;
 
@@ -116,6 +133,7 @@ export default function GenerateInvoicesPage() {
         if (!selectedFee) continue;
 
         const batch_id = uuidv4();
+        // Updated description logic to be more descriptive based on filters
         const batch_description = `${selectedFee.fee_name} for ${values.studying_year_filters.join(', ')}`;
 
         const invoicesToInsert = students.map(student => ({
@@ -149,9 +167,9 @@ export default function GenerateInvoicesPage() {
         totalInvoicesCreated += newInvoices.length;
       }
 
-      toast.success(`Successfully generated ${totalInvoicesCreated} invoices for ${students.length} students!`, { id: toastId });
+      toast.success(`Successfully generated ${totalInvoicesCreated} total invoices!`, { id: toastId });
       form.reset();
-      router.push('/invoices');
+      router.push('/billing'); // Navigating back to billing page where invoices tab is
     } catch (err: any) {
       toast.error(`Operation failed: ${err.message}`, { id: toastId });
     } finally {
@@ -173,7 +191,7 @@ export default function GenerateInvoicesPage() {
           <div>
             <CardTitle>Generate Bulk Invoices</CardTitle>
             <CardDescription>
-              Assign fees to specific groups of students (1st Year, 2nd Year, etc.).
+              Assign fees to specific groups of students. All matched students will be included.
             </CardDescription>
           </div>
         </div>
@@ -239,7 +257,7 @@ export default function GenerateInvoicesPage() {
                       options={studyingYears.map(sy => ({ label: sy.name, value: sy.name }))} 
                       value={field.value} 
                       onChange={field.onChange} 
-                      placeholder="Select target years (1st, 2nd, etc.)..."
+                      placeholder="Select target years..."
                     />
                   </FormControl>
                   <FormMessage />

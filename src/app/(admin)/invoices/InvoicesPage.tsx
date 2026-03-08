@@ -63,6 +63,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTablePagination } from "@/components/data-table-pagination";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type InvoiceSummary = {
   batch_id: string;
@@ -77,6 +78,12 @@ type InvoiceSummary = {
 const editBatchSchema = z.object({
   batch_description: z.string().min(1, "Description is required"),
   due_date: z.string().min(1, "Due date is required"),
+  penalty_amount_per_day: z.coerce.number().min(0, "Penalty must be 0 or more"),
+  // Metadata fields for UX consistency, even if membership isn't re-run
+  classes: z.string().optional(),
+  sections: z.string().optional(),
+  studying_years: z.string().optional(),
+  student_types: z.string().optional(),
 });
 
 const PAGE_SIZE = 10;
@@ -111,6 +118,29 @@ export default function InvoicesPage() {
     fetchSummaries();
   }, []);
 
+  const handleEditClick = async (summary: InvoiceSummary) => {
+    setEditingBatch(summary);
+    
+    // Fetch detailed info for one invoice in the batch to get penalty
+    const { data: details } = await supabase
+        .from('invoices')
+        .select('penalty_amount_per_day')
+        .eq('batch_id', summary.batch_id)
+        .limit(1)
+        .single();
+
+    form.reset({
+      batch_description: summary.batch_description,
+      due_date: summary.due_date,
+      penalty_amount_per_day: details?.penalty_amount_per_day || 0,
+      classes: "Mixed", // These are not stored as batch metadata yet
+      sections: "Mixed",
+      studying_years: "Mixed",
+      student_types: "Mixed",
+    });
+    setEditDialogOpen(true);
+  };
+
   const handleDelete = async () => {
     if (selectedItems.length === 0) return;
     setIsDeleting(true);
@@ -130,13 +160,14 @@ export default function InvoicesPage() {
   const onEditSubmit = async (values: z.infer<typeof editBatchSchema>) => {
     if (!editingBatch) return;
     setIsUpdating(true);
-    const toastId = toast.loading("Updating batch details...");
+    const toastId = toast.loading("Updating all invoices in batch...");
 
     const { error } = await supabase
       .from("invoices")
       .update({
         batch_description: values.batch_description,
         due_date: values.due_date,
+        penalty_amount_per_day: values.penalty_amount_per_day,
       })
       .eq("batch_id", editingBatch.batch_id);
 
@@ -243,14 +274,7 @@ export default function InvoicesPage() {
                               <Eye className="h-4 w-4 mr-2" /> View Details
                             </Link>
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => {
-                            setEditingBatch(summary);
-                            form.reset({
-                              batch_description: summary.batch_description,
-                              due_date: summary.due_date,
-                            });
-                            setEditDialogOpen(true);
-                          }}>
+                          <DropdownMenuItem onClick={() => handleEditClick(summary)}>
                             <Pencil className="h-4 w-4 mr-2" /> Edit Details
                           </DropdownMenuItem>
                           <DropdownMenuItem className="text-destructive" onClick={() => {
@@ -289,35 +313,65 @@ export default function InvoicesPage() {
       </AlertDialog>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Edit Batch Details</DialogTitle>
-            <DialogDescription>Update the description and due date for all invoices in this batch.</DialogDescription>
+            <DialogDescription>Update values for all invoices in this batch. (Note: Changing student filters requires deleting and re-generating).</DialogDescription>
           </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4">
-              <FormField control={form.control} name="batch_description" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Batch Description</FormLabel>
-                  <FormControl><Input {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="due_date" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Due Date</FormLabel>
-                  <FormControl><Input type="date" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={isUpdating}>
-                  {isUpdating ? "Saving..." : "Save Changes"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
+          <ScrollArea className="max-h-[80vh] pr-4">
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4">
+                <FormField control={form.control} name="batch_description" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Batch Description</FormLabel>
+                    <FormControl><Input {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField control={form.control} name="due_date" render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Due Date</FormLabel>
+                        <FormControl><Input type="date" {...field} /></FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )} />
+                    <FormField control={form.control} name="penalty_amount_per_day" render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Late Penalty (Per Day)</FormLabel>
+                        <FormControl><Input type="number" {...field} /></FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )} />
+                </div>
+                
+                <div className="pt-4 border-t space-y-4">
+                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Membership Metadata</h4>
+                    <div className="grid grid-cols-2 gap-4 opacity-70 grayscale pointer-events-none">
+                        <FormField control={form.control} name="classes" render={({ field }) => (
+                        <FormItem><FormLabel>Classes</FormLabel><FormControl><Input {...field} disabled /></FormControl></FormItem>
+                        )} />
+                        <FormField control={form.control} name="sections" render={({ field }) => (
+                        <FormItem><FormLabel>Sections</FormLabel><FormControl><Input {...field} disabled /></FormControl></FormItem>
+                        )} />
+                        <FormField control={form.control} name="studying_years" render={({ field }) => (
+                        <FormItem><FormLabel>Studying Years</FormLabel><FormControl><Input {...field} disabled /></FormControl></FormItem>
+                        )} />
+                        <FormField control={form.control} name="student_type_filters" render={({ field }) => (
+                        <FormItem><FormLabel>Student Types</FormLabel><FormControl><Input value="All Matching" disabled /></FormControl></FormItem>
+                        )} />
+                    </div>
+                </div>
+
+                <DialogFooter className="pt-6">
+                  <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" disabled={isUpdating}>
+                    {isUpdating ? "Saving..." : "Apply Batch Changes"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </>
