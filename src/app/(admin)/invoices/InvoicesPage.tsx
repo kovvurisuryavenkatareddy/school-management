@@ -146,27 +146,67 @@ export default function InvoicesPage() {
   }, []);
 
   const handleEditClick = async (summary: InvoiceSummary) => {
+    const toastId = toast.loading("Fetching batch metadata...");
     setEditingBatch(summary);
     
-    const { data: details } = await supabase
-        .from('invoices')
-        .select('penalty_amount_per_day')
-        .eq('batch_id', summary.batch_id)
-        .limit(1)
-        .single();
+    try {
+        // 1. Fetch detailed info for one invoice to get penalty and description
+        const { data: batchDetails } = await supabase
+            .from('invoices')
+            .select('penalty_amount_per_day, batch_id')
+            .eq('batch_id', summary.batch_id)
+            .limit(1)
+            .single();
 
-    // Since original filter selections aren't stored in the batch, we initialize with descriptive defaults
-    form.reset({
-      batch_description: summary.batch_description,
-      due_date: summary.due_date,
-      penalty_amount_per_day: details?.penalty_amount_per_day || 0,
-      fee_structure_ids: [], // User selects new ones if they want to change the descriptive label
-      class_filters: [],
-      section_filters: [],
-      studying_year_filters: [],
-      student_type_filters: [],
-    });
-    setEditDialogOpen(true);
+        // 2. Fetch unique metadata from students in this batch
+        const { data: studentsInBatch } = await supabase
+            .from('invoices')
+            .select('students(class, section, studying_year, student_type_id)')
+            .eq('batch_id', summary.batch_id);
+
+        const classes = new Set<string>();
+        const sections = new Set<string>();
+        const years = new Set<string>();
+        const types = new Set<string>();
+
+        studentsInBatch?.forEach((inv: any) => {
+            if (inv.students) {
+                if (inv.students.class) classes.add(inv.students.class);
+                if (inv.students.section) sections.add(inv.students.section);
+                if (inv.students.studying_year) years.add(inv.students.studying_year);
+                if (inv.students.student_type_id) types.add(inv.students.student_type_id);
+            }
+        });
+
+        // 3. Fetch descriptions from invoice items to map back to fee structures
+        const { data: items } = await supabase
+            .from('invoice_items')
+            .select('description')
+            .in('invoice_id', (await supabase.from('invoices').select('id').eq('batch_id', summary.batch_id)).data?.map(i => i.id) || [])
+            .limit(10); // Check a few to be safe
+
+        const descriptions = new Set(items?.map(i => i.description));
+        const matchedFeeIds = feeOptions
+            .filter(opt => descriptions.has(opt.label))
+            .map(opt => opt.value);
+
+        form.reset({
+            batch_description: summary.batch_description,
+            due_date: summary.due_date,
+            penalty_amount_per_day: batchDetails?.penalty_amount_per_day || 0,
+            fee_structure_ids: matchedFeeIds,
+            class_filters: Array.from(classes),
+            section_filters: Array.from(sections),
+            studying_year_filters: Array.from(years),
+            student_type_filters: Array.from(types),
+        });
+
+        toast.dismiss(toastId);
+        setEditDialogOpen(true);
+    } catch (err) {
+        toast.error("Failed to load batch details.");
+        toast.dismiss(toastId);
+    }
   };
 
   const handleDelete = async () => {
@@ -191,6 +231,7 @@ export default function InvoicesPage() {
     const toastId = toast.loading("Applying batch changes...");
 
     // Update batch metadata and common invoice fields
+    // Note: Changing filters here only updates the description/metadata, not the student membership
     const { error } = await supabase
       .from("invoices")
       .update({
