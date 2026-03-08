@@ -79,7 +79,6 @@ const editBatchSchema = z.object({
   batch_description: z.string().min(1, "Description is required"),
   due_date: z.string().min(1, "Due date is required"),
   penalty_amount_per_day: z.coerce.number().min(0, "Penalty must be 0 or more"),
-  // Metadata fields for UX consistency, even if membership isn't re-run
   classes: z.string().optional(),
   sections: z.string().optional(),
   studying_years: z.string().optional(),
@@ -121,7 +120,6 @@ export default function InvoicesPage() {
   const handleEditClick = async (summary: InvoiceSummary) => {
     setEditingBatch(summary);
     
-    // Fetch detailed info for one invoice in the batch to get penalty
     const { data: details } = await supabase
         .from('invoices')
         .select('penalty_amount_per_day')
@@ -129,14 +127,19 @@ export default function InvoicesPage() {
         .limit(1)
         .single();
 
+    // Parse description for metadata placeholders
+    const descParts = summary.batch_description.split(' for ');
+    const feeType = descParts[0] || "";
+    const years = descParts[1] || "";
+
     form.reset({
       batch_description: summary.batch_description,
       due_date: summary.due_date,
       penalty_amount_per_day: details?.penalty_amount_per_day || 0,
-      classes: "Mixed", // These are not stored as batch metadata yet
-      sections: "Mixed",
-      studying_years: "Mixed",
-      student_types: "Mixed",
+      classes: "Standard", 
+      sections: "All",
+      studying_years: years || "Mixed",
+      student_types: "All Matching",
     });
     setEditDialogOpen(true);
   };
@@ -160,7 +163,7 @@ export default function InvoicesPage() {
   const onEditSubmit = async (values: z.infer<typeof editBatchSchema>) => {
     if (!editingBatch) return;
     setIsUpdating(true);
-    const toastId = toast.loading("Updating all invoices in batch...");
+    const toastId = toast.loading("Applying changes to batch...");
 
     const { error } = await supabase
       .from("invoices")
@@ -204,11 +207,7 @@ export default function InvoicesPage() {
             </div>
             <div className="flex items-center gap-2">
               {selectedItems.length > 0 && (
-                <Button 
-                  variant="destructive" 
-                  size="sm" 
-                  onClick={() => setDeleteAlertOpen(true)}
-                >
+                <Button variant="destructive" size="sm" onClick={() => setDeleteAlertOpen(true)}>
                   <Trash2 className="h-3.5 w-3.5 mr-1" />
                   Delete Selected ({selectedItems.length})
                 </Button>
@@ -216,7 +215,7 @@ export default function InvoicesPage() {
               <Link href="/invoices/generate">
                 <Button size="sm" className="gap-1">
                   <PlusCircle className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Generate Invoices</span>
+                  <span className="sr-only sm:not-sr-only">Generate Invoices</span>
                 </Button>
               </Link>
             </div>
@@ -301,7 +300,7 @@ export default function InvoicesPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently delete the selected invoice batch(es) and all associated student invoices. This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>This will permanently delete the selected invoice batch(es). This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -316,14 +315,14 @@ export default function InvoicesPage() {
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Edit Batch Details</DialogTitle>
-            <DialogDescription>Update values for all invoices in this batch. (Note: Changing student filters requires deleting and re-generating).</DialogDescription>
+            <DialogDescription>Update values for all invoices in this batch.</DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[80vh] pr-4">
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4">
                 <FormField control={form.control} name="batch_description" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Batch Description</FormLabel>
+                    <FormLabel>Batch Description / Fee Type</FormLabel>
                     <FormControl><Input {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
@@ -346,19 +345,19 @@ export default function InvoicesPage() {
                 </div>
                 
                 <div className="pt-4 border-t space-y-4">
-                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Membership Metadata</h4>
-                    <div className="grid grid-cols-2 gap-4 opacity-70 grayscale pointer-events-none">
+                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Membership Metadata (Labels)</h4>
+                    <div className="grid grid-cols-2 gap-4">
                         <FormField control={form.control} name="classes" render={({ field }) => (
-                        <FormItem><FormLabel>Classes</FormLabel><FormControl><Input {...field} disabled /></FormControl></FormItem>
+                        <FormItem><FormLabel>Classes</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
                         )} />
                         <FormField control={form.control} name="sections" render={({ field }) => (
-                        <FormItem><FormLabel>Sections</FormLabel><FormControl><Input {...field} disabled /></FormControl></FormItem>
+                        <FormItem><FormLabel>Sections</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
                         )} />
                         <FormField control={form.control} name="studying_years" render={({ field }) => (
-                        <FormItem><FormLabel>Studying Years</FormLabel><FormControl><Input {...field} disabled /></FormControl></FormItem>
+                        <FormItem><FormLabel>Studying Years</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
                         )} />
-                        <FormField control={form.control} name="student_type_filters" render={({ field }) => (
-                        <FormItem><FormLabel>Student Types</FormLabel><FormControl><Input value="All Matching" disabled /></FormControl></FormItem>
+                        <FormField control={form.control} name="student_types" render={({ field }) => (
+                        <FormItem><FormLabel>Student Types</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
                         )} />
                     </div>
                 </div>
