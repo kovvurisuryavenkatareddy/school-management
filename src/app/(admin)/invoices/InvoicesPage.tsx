@@ -64,6 +64,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { MultiSelect } from "@/components/ui/multi-select";
 
 type InvoiceSummary = {
   batch_id: string;
@@ -75,14 +76,17 @@ type InvoiceSummary = {
   pending_students: number;
 };
 
+type Option = { label: string; value: string };
+
 const editBatchSchema = z.object({
   batch_description: z.string().min(1, "Description is required"),
   due_date: z.string().min(1, "Due date is required"),
   penalty_amount_per_day: z.coerce.number().min(0, "Penalty must be 0 or more"),
-  classes: z.string().optional(),
-  sections: z.string().optional(),
-  studying_years: z.string().optional(),
-  student_types: z.string().optional(),
+  fee_structure_ids: z.array(z.string()).optional(),
+  class_filters: z.array(z.string()).optional(),
+  section_filters: z.array(z.string()).optional(),
+  studying_year_filters: z.array(z.string()).optional(),
+  student_type_filters: z.array(z.string()).optional(),
 });
 
 const PAGE_SIZE = 10;
@@ -97,6 +101,13 @@ export default function InvoicesPage() {
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState<InvoiceSummary | null>(null);
+
+  // Filter Options State
+  const [feeOptions, setFeeOptions] = useState<Option[]>([]);
+  const [classOptions, setClassOptions] = useState<Option[]>([]);
+  const [sectionOptions, setSectionOptions] = useState<Option[]>([]);
+  const [studyingYearOptions, setStudyingYearOptions] = useState<Option[]>([]);
+  const [studentTypeOptions, setStudentTypeOptions] = useState<Option[]>([]);
 
   const form = useForm<z.infer<typeof editBatchSchema>>({
     resolver: zodResolver(editBatchSchema),
@@ -113,8 +124,25 @@ export default function InvoicesPage() {
     setIsLoading(false);
   };
 
+  const fetchOptions = async () => {
+    const [fees, types, groups, years, sections] = await Promise.all([
+        supabase.from("fee_structures").select("id, fee_name"),
+        supabase.from("student_types").select("id, name"),
+        supabase.from("class_groups").select("id, name"),
+        supabase.from("studying_years").select("id, name"),
+        supabase.from("sections").select("id, name"),
+    ]);
+
+    if (fees.data) setFeeOptions(fees.data.map(f => ({ label: f.fee_name, value: f.id })));
+    if (types.data) setStudentTypeOptions(types.data.map(t => ({ label: t.name, value: t.id })));
+    if (groups.data) setClassOptions(groups.data.map(g => ({ label: g.name, value: g.name })));
+    if (years.data) setStudyingYearOptions(years.data.map(y => ({ label: y.name, value: y.name })));
+    if (sections.data) setSectionOptions(sections.data.map(s => ({ label: `Section ${s.name}`, value: s.name })));
+  };
+
   useEffect(() => {
     fetchSummaries();
+    fetchOptions();
   }, []);
 
   const handleEditClick = async (summary: InvoiceSummary) => {
@@ -127,19 +155,16 @@ export default function InvoicesPage() {
         .limit(1)
         .single();
 
-    // Parse description for metadata placeholders
-    const descParts = summary.batch_description.split(' for ');
-    const feeType = descParts[0] || "";
-    const years = descParts[1] || "";
-
+    // Since original filter selections aren't stored in the batch, we initialize with descriptive defaults
     form.reset({
       batch_description: summary.batch_description,
       due_date: summary.due_date,
       penalty_amount_per_day: details?.penalty_amount_per_day || 0,
-      classes: "Standard", 
-      sections: "All",
-      studying_years: years || "Mixed",
-      student_types: "All Matching",
+      fee_structure_ids: [], // User selects new ones if they want to change the descriptive label
+      class_filters: [],
+      section_filters: [],
+      studying_year_filters: [],
+      student_type_filters: [],
     });
     setEditDialogOpen(true);
   };
@@ -163,8 +188,9 @@ export default function InvoicesPage() {
   const onEditSubmit = async (values: z.infer<typeof editBatchSchema>) => {
     if (!editingBatch) return;
     setIsUpdating(true);
-    const toastId = toast.loading("Applying changes to batch...");
+    const toastId = toast.loading("Applying batch changes...");
 
+    // Update batch metadata and common invoice fields
     const { error } = await supabase
       .from("invoices")
       .update({
@@ -312,60 +338,111 @@ export default function InvoicesPage() {
       </AlertDialog>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[700px]">
           <DialogHeader>
-            <DialogTitle>Edit Batch Details</DialogTitle>
-            <DialogDescription>Update values for all invoices in this batch.</DialogDescription>
+            <DialogTitle>Edit Bulk Invoices</DialogTitle>
+            <DialogDescription>Update metadata and financial terms for this batch. All students in this batch will be updated.</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[80vh] pr-4">
+          <ScrollArea className="max-h-[85vh] pr-4 pt-4">
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4">
-                <FormField control={form.control} name="batch_description" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Batch Description / Fee Type</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <div className="grid grid-cols-2 gap-4">
-                    <FormField control={form.control} name="due_date" render={({ field }) => (
+              <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <FormField control={form.control} name="fee_structure_ids" render={({ field }) => (
                     <FormItem>
-                        <FormLabel>Due Date</FormLabel>
-                        <FormControl><Input type="date" {...field} /></FormControl>
-                        <FormMessage />
+                      <FormLabel>Fee Types</FormLabel>
+                      <FormControl>
+                        <MultiSelect 
+                          options={feeOptions} 
+                          value={field.value || []} 
+                          onChange={field.onChange} 
+                          placeholder="Choose one or more fees..."
+                        />
+                      </FormControl>
+                      <FormMessage />
                     </FormItem>
-                    )} />
-                    <FormField control={form.control} name="penalty_amount_per_day" render={({ field }) => (
+                  )} />
+
+                  <FormField control={form.control} name="due_date" render={({ field }) => (
+                    <FormItem><FormLabel>Due Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+
+                  <FormField control={form.control} name="class_filters" render={({ field }) => (
                     <FormItem>
-                        <FormLabel>Late Penalty (Per Day)</FormLabel>
-                        <FormControl><Input type="number" {...field} /></FormControl>
-                        <FormMessage />
+                      <FormLabel>Classes</FormLabel>
+                      <FormControl>
+                        <MultiSelect 
+                          options={classOptions} 
+                          value={field.value || []} 
+                          onChange={field.onChange} 
+                          placeholder="Select target classes..."
+                        />
+                      </FormControl>
+                      <FormMessage />
                     </FormItem>
-                    )} />
-                </div>
-                
-                <div className="pt-4 border-t space-y-4">
-                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Membership Metadata (Labels)</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                        <FormField control={form.control} name="classes" render={({ field }) => (
-                        <FormItem><FormLabel>Classes</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
-                        )} />
-                        <FormField control={form.control} name="sections" render={({ field }) => (
-                        <FormItem><FormLabel>Sections</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
-                        )} />
-                        <FormField control={form.control} name="studying_years" render={({ field }) => (
-                        <FormItem><FormLabel>Studying Years</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
-                        )} />
-                        <FormField control={form.control} name="student_types" render={({ field }) => (
-                        <FormItem><FormLabel>Student Types</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
-                        )} />
-                    </div>
+                  )} />
+
+                  <FormField control={form.control} name="section_filters" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Sections</FormLabel>
+                      <FormControl>
+                        <MultiSelect 
+                          options={sectionOptions} 
+                          value={field.value || []} 
+                          onChange={field.onChange} 
+                          placeholder="Select target sections..."
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  <FormField control={form.control} name="studying_year_filters" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Studying Years</FormLabel>
+                      <FormControl>
+                        <MultiSelect 
+                          options={studyingYearOptions} 
+                          value={field.value || []} 
+                          onChange={field.onChange} 
+                          placeholder="Select target years..."
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  <FormField control={form.control} name="student_type_filters" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Student Types</FormLabel>
+                      <FormControl>
+                        <MultiSelect 
+                          options={studentTypeOptions} 
+                          value={field.value || []} 
+                          onChange={field.onChange} 
+                          placeholder="Select student categories..."
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  <FormField control={form.control} name="penalty_amount_per_day" render={({ field }) => (
+                    <FormItem><FormLabel>Late Penalty (Per Day)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+
+                  <FormField control={form.control} name="batch_description" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Manual Batch Label</FormLabel>
+                      <FormControl><Input {...field} placeholder="Enter a descriptive label..." /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
                 </div>
 
-                <DialogFooter className="pt-6">
+                <DialogFooter className="pt-4 border-t">
                   <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
                   <Button type="submit" disabled={isUpdating}>
-                    {isUpdating ? "Saving..." : "Apply Batch Changes"}
+                    {isUpdating ? "Applying..." : "Save Batch Changes"}
                   </Button>
                 </DialogFooter>
               </form>
