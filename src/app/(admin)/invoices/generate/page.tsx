@@ -33,6 +33,7 @@ type FeeStructure = { id: string; fee_name: string; amount: number };
 type StudentType = { id: string; name: string };
 type ClassGroup = { id: string; name: string };
 type StudyingYear = { id: string; name: string };
+type Section = { id: string; name: string };
 
 const formSchema = z.object({
   fee_structure_ids: z.array(z.string()).min(1, "Please select at least one fee type"),
@@ -50,6 +51,7 @@ export default function GenerateInvoicesPage() {
   const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
   const [classGroups, setClassGroups] = useState<ClassGroup[]>([]);
   const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -66,23 +68,25 @@ export default function GenerateInvoicesPage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const [feesRes, typesRes, groupsRes, syRes] = await Promise.all([
+      const [feesRes, typesRes, groupsRes, syRes, secRes] = await Promise.all([
         supabase.from("fee_structures").select("id, fee_name, amount"),
         supabase.from("student_types").select("id, name"),
         supabase.from("class_groups").select("id, name"),
         supabase.from("studying_years").select("id, name"),
+        supabase.from("sections").select("id, name"),
       ]);
       if (feesRes.data) setFeeStructures(feesRes.data);
       if (typesRes.data) setStudentTypes(typesRes.data);
       if (groupsRes.data) setClassGroups(groupsRes.data);
       if (syRes.data) setStudyingYears(syRes.data);
+      if (secRes.data) setSections(secRes.data);
     };
     fetchData();
   }, []);
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
-    const toastId = toast.loading("Processing bulk invoices...");
+    const toastId = toast.loading("Querying matched students...");
     
     try {
       let studentQuery = supabase
@@ -98,10 +102,12 @@ export default function GenerateInvoicesPage() {
 
       if (studentError) throw studentError;
       if (!students || students.length === 0) {
-        toast.warning("No students found matching the selected criteria.", { id: toastId });
+        toast.warning("No students found matching the selected criteria. Check if sections or years match exactly.", { id: toastId });
         setIsSubmitting(false);
         return;
       }
+
+      toast.loading(`Generating invoices for ${students.length} students...`, { id: toastId });
 
       let totalInvoicesCreated = 0;
 
@@ -110,7 +116,7 @@ export default function GenerateInvoicesPage() {
         if (!selectedFee) continue;
 
         const batch_id = uuidv4();
-        const batch_description = `${selectedFee.fee_name} (Bulk Generation)`;
+        const batch_description = `${selectedFee.fee_name} for ${values.studying_year_filters.join(', ')}`;
 
         const invoicesToInsert = students.map(student => ({
           student_id: student.id,
@@ -120,6 +126,7 @@ export default function GenerateInvoicesPage() {
           penalty_amount_per_day: values.penalty_amount,
           batch_id: batch_id,
           batch_description: batch_description,
+          paid_amount: 0,
         }));
 
         const { data: newInvoices, error: invoiceError } = await supabase
@@ -142,8 +149,9 @@ export default function GenerateInvoicesPage() {
         totalInvoicesCreated += newInvoices.length;
       }
 
-      toast.success(`Successfully generated ${totalInvoicesCreated} invoices across matched criteria!`, { id: toastId });
+      toast.success(`Successfully generated ${totalInvoicesCreated} invoices for ${students.length} students!`, { id: toastId });
       form.reset();
+      router.push('/invoices');
     } catch (err: any) {
       toast.error(`Operation failed: ${err.message}`, { id: toastId });
     } finally {
@@ -165,7 +173,7 @@ export default function GenerateInvoicesPage() {
           <div>
             <CardTitle>Generate Bulk Invoices</CardTitle>
             <CardDescription>
-              Select multiple criteria to assign fees to specific groups of students.
+              Assign fees to specific groups of students (1st Year, 2nd Year, etc.).
             </CardDescription>
           </div>
         </div>
@@ -213,7 +221,7 @@ export default function GenerateInvoicesPage() {
                   <FormLabel>Sections</FormLabel>
                   <FormControl>
                     <MultiSelect 
-                      options={['A', 'B', 'C', 'D', 'E'].map(sec => ({ label: `Section ${sec}`, value: sec }))} 
+                      options={sections.map(sec => ({ label: `Section ${sec.name}`, value: sec.name }))} 
                       value={field.value} 
                       onChange={field.onChange} 
                       placeholder="Select target sections..."
@@ -259,11 +267,11 @@ export default function GenerateInvoicesPage() {
             </div>
 
             <div className="flex justify-end pt-4 border-t">
-              <Button type="submit" disabled={isSubmitting} className="min-w-[180px]">
+              <Button type="submit" disabled={isSubmitting} className="min-w-[200px]">
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Generating Batch...
+                    Generating...
                   </>
                 ) : 'Generate All Invoices'}
               </Button>
