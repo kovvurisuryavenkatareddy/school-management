@@ -28,9 +28,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, FileSpreadsheet } from "lucide-react";
+import { Loader2, Search, FileSpreadsheet, XCircle } from "lucide-react";
 import { FIXED_TERMS, AcademicYear, ClassGroup, StudyingYear } from "@/types";
 import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
+import { MultiSelect } from "@/components/ui/multi-select";
 import Papa from "papaparse";
 import React from "react";
 
@@ -56,16 +57,15 @@ type StudentRegisterRecord = {
   years: YearData[];
 };
 
-const YEAR_RANKING = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
-
 export function FeeRegisterView() {
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [studyingYears, setStudyingYears] = useState<StudyingYear[]>([]);
   
-  const [selectedYearFilter, setSelectedYearFilter] = useState<string>("all");
+  const [selectedEnrollmentYear, setSelectedEnrollmentYear] = useState<string>("all");
   const [selectedClass, setSelectedClass] = useState<string>("all");
-  const [selectedStudyingYear, setSelectedStudyingYear] = useState<string>("all");
+  const [selectedStudyingYears, setSelectedStudyingYears] = useState<string[]>([]);
+  const [selectedTerms, setSelectedTerms] = useState<string[]>([]);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -92,16 +92,10 @@ export function FeeRegisterView() {
     try {
       let studentQuery = supabase.from('students').select('*, student_types(name)');
       
-      // Filter students by enrollment year and class if selected
-      if (selectedYearFilter !== "all") studentQuery = studentQuery.eq('academic_year_id', selectedYearFilter);
+      if (selectedEnrollmentYear !== "all") studentQuery = studentQuery.eq('academic_year_id', selectedEnrollmentYear);
       if (selectedClass !== "all") studentQuery = studentQuery.eq('class', selectedClass);
       
-      // If a specific year is selected, we filter students currently in that year or higher 
-      // (though we will handle the visual filtering of fee rows in the processing step)
-      if (selectedStudyingYear !== "all") {
-        studentQuery = studentQuery.eq('studying_year', selectedStudyingYear);
-      }
-
+      // We fetch all relevant students and handle granular row filtering in JS
       const { data: students, error: studentError } = await studentQuery;
       if (studentError) throw studentError;
 
@@ -122,20 +116,18 @@ export function FeeRegisterView() {
       const processed: StudentRegisterRecord[] = students.map(student => {
         const normalizedFee = normalizeFeeStructure(student.fee_details);
         
-        // Filter the years based on cumulative logic
+        // Filter the years (1st Year, 2nd Year, etc.) based on MultiSelect
         const yearEntries = Object.entries(normalizedFee).filter(([yearName]) => {
-          if (selectedStudyingYear === "all") return true;
-          
-          const selectedIdx = YEAR_RANKING.indexOf(selectedStudyingYear);
-          const currentIdx = YEAR_RANKING.indexOf(yearName);
-          
-          // Return true if current year is less than or equal to selected year ranking
-          // e.g. if 2nd Year is selected, show 1st and 2nd.
-          return currentIdx !== -1 && selectedIdx !== -1 ? currentIdx <= selectedIdx : true;
+          if (selectedStudyingYears.length === 0) return true;
+          return selectedStudyingYears.includes(yearName);
         });
 
         const years: YearData[] = yearEntries.map(([yearName, feeItems]) => {
-          const terms: TermData[] = FIXED_TERMS.map(term => {
+          // Filter the terms (Term 1, Term 2, etc.) based on MultiSelect
+          const terms: TermData[] = FIXED_TERMS.filter(t => {
+            if (selectedTerms.length === 0) return true;
+            return selectedTerms.includes(t.name);
+          }).map(term => {
             const termItem = feeItems.find(i => i.term_name === term.name);
             const expected = termItem?.amount || 0;
             
@@ -159,7 +151,7 @@ export function FeeRegisterView() {
           });
 
           return { yearName, terms };
-        });
+        }).filter(y => y.terms.length > 0); // Remove years that have no terms left after filtering
 
         return {
           id: student.id,
@@ -169,10 +161,10 @@ export function FeeRegisterView() {
           section: student.section,
           years
         };
-      });
+      }).filter(s => s.years.length > 0); // Only keep students who have at least one matching year/term
 
       setRegisterData(processed);
-      toast.success(`Loaded register for ${processed.length} students.`);
+      toast.success(`Loaded records for ${processed.length} students.`);
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -210,9 +202,9 @@ export function FeeRegisterView() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'Paid': return <Badge className="bg-emerald-500 hover:bg-emerald-600">Paid</Badge>;
-      case 'Partial': return <Badge variant="outline" className="text-amber-600 border-amber-600 bg-amber-50">Partial</Badge>;
-      default: return <Badge variant="destructive">Pending</Badge>;
+      case 'Paid': return <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[10px]">Paid</Badge>;
+      case 'Partial': return <Badge variant="outline" className="text-amber-600 border-amber-600 bg-amber-50 text-[10px]">Partial</Badge>;
+      default: return <Badge variant="destructive" className="text-[10px]">Pending</Badge>;
     }
   };
 
@@ -223,22 +215,23 @@ export function FeeRegisterView() {
       <Card className="border-primary/10 shadow-sm">
         <CardHeader>
           <CardTitle className="text-xl font-ubuntu">Fee Tracking Register</CardTitle>
-          <CardDescription>Generate cumulative term-wise reports. Selecting a year shows all dues up to that point.</CardDescription>
+          <CardDescription>Select specific studying years and terms to generate audit data.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-end">
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Academic Year</Label>
-              <Select value={selectedYearFilter} onValueChange={setSelectedYearFilter}>
-                <SelectTrigger className="h-10"><SelectValue placeholder="All Enrollment Years" /></SelectTrigger>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Enrollment Year</Label>
+              <Select value={selectedEnrollmentYear} onValueChange={setSelectedEnrollmentYear}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="All Years" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Years</SelectItem>
                   {academicYears.map(ay => <SelectItem key={ay.id} value={ay.id}>{ay.year_name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Class</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Class</Label>
               <Select value={selectedClass} onValueChange={setSelectedClass}>
                 <SelectTrigger className="h-10"><SelectValue placeholder="All Classes" /></SelectTrigger>
                 <SelectContent>
@@ -247,20 +240,38 @@ export function FeeRegisterView() {
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Current Studying Year</Label>
-              <Select value={selectedStudyingYear} onValueChange={setSelectedStudyingYear}>
-                <SelectTrigger className="h-10"><SelectValue placeholder="All Years" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Years (Legacy)</SelectItem>
-                  {studyingYears.map(sy => <SelectItem key={sy.id} value={sy.name}>{sy.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Studying Years (Multi-select)</Label>
+              <MultiSelect
+                options={studyingYears.map(sy => ({ label: sy.name, value: sy.name }))}
+                value={selectedStudyingYears}
+                onChange={setSelectedStudyingYears}
+                placeholder="Choose years..."
+              />
             </div>
-            <Button onClick={handleShowRegister} disabled={isLoading} className="h-10 gap-2 font-bold shadow-md shadow-primary/10">
-              {isLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <Search className="h-4 w-4" />}
-              Generate Register
-            </Button>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Terms (Multi-select)</Label>
+              <MultiSelect
+                options={FIXED_TERMS.map(t => ({ label: t.name, value: t.name }))}
+                value={selectedTerms}
+                onChange={setSelectedTerms}
+                placeholder="Choose terms..."
+              />
+            </div>
+
+            <div className="lg:col-span-2 flex gap-3">
+              <Button onClick={handleShowRegister} disabled={isLoading} className="flex-1 h-10 gap-2 font-bold">
+                {isLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <Search className="h-4 w-4" />}
+                Show Records
+              </Button>
+              {registerData.length > 0 && (
+                <Button variant="outline" onClick={() => setRegisterData([])} className="h-10 px-3 text-rose-600 border-rose-200">
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -269,21 +280,21 @@ export function FeeRegisterView() {
         <Card className="border-primary/10 shadow-lg overflow-hidden">
           <CardHeader className="bg-muted/30 border-b flex flex-row items-center justify-between py-4">
             <div>
-              <CardTitle className="text-lg">Audit Data</CardTitle>
-              <CardDescription>Found {registerData.length} students matching criteria.</CardDescription>
+              <CardTitle className="text-lg">Register Audit Data</CardTitle>
+              <CardDescription>Records found: {registerData.length}</CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={downloadCSV} className="gap-2 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
               <FileSpreadsheet className="h-4 w-4" />
-              Export to CSV
+              Export CSV
             </Button>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-muted/50 hover:bg-muted/50">
-                    <TableHead className="pl-6 w-[250px]">Student Details</TableHead>
-                    <TableHead>Year / Term</TableHead>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="pl-6 w-[250px]">Student Context</TableHead>
+                    <TableHead>Fee Year / Term</TableHead>
                     <TableHead className="text-right">Expected</TableHead>
                     <TableHead className="text-right">Paid</TableHead>
                     <TableHead className="text-right">Pending</TableHead>
@@ -291,40 +302,43 @@ export function FeeRegisterView() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {registerData.map((student) => (
-                    <React.Fragment key={student.id}>
-                      {student.years.map((year, yIdx) => (
-                        <React.Fragment key={`${student.id}-${year.yearName}`}>
-                          {year.terms.map((term, tIdx) => (
-                            <TableRow key={`${student.id}-${year.yearName}-${term.termName}`} className="hover:bg-muted/5">
-                              {yIdx === 0 && tIdx === 0 && (
-                                <TableCell rowSpan={student.years.reduce((acc, y) => acc + y.terms.length, 0)} className="pl-6 align-top pt-4 border-r">
-                                  <div className="flex flex-col">
-                                    <span className="font-black text-sm text-primary">{student.name}</span>
-                                    <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tighter">Roll: {student.roll_number}</span>
-                                    <span className="text-[10px] mt-1 font-medium">{student.class}-{student.section}</span>
+                  {registerData.map((student) => {
+                    const totalRows = student.years.reduce((acc, y) => acc + y.terms.length, 0);
+                    return (
+                      <React.Fragment key={student.id}>
+                        {student.years.map((year, yIdx) => (
+                          <React.Fragment key={`${student.id}-${year.yearName}`}>
+                            {year.terms.map((term, tIdx) => (
+                              <TableRow key={`${student.id}-${year.yearName}-${term.termName}`} className="hover:bg-muted/5">
+                                {yIdx === 0 && tIdx === 0 && (
+                                  <TableCell rowSpan={totalRows} className="pl-6 align-top pt-4 border-r">
+                                    <div className="flex flex-col">
+                                      <span className="font-black text-sm text-primary">{student.name}</span>
+                                      <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tighter">Roll: {student.roll_number}</span>
+                                      <span className="text-[10px] mt-1 font-medium">{student.class}-{student.section}</span>
+                                    </div>
+                                  </TableCell>
+                                )}
+                                <TableCell className="py-2">
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-[9px] font-bold px-1.5 h-4">{year.yearName}</Badge>
+                                    <span className="text-xs font-semibold">{term.termName}</span>
                                   </div>
                                 </TableCell>
-                              )}
-                              <TableCell className="py-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{year.yearName}</span>
-                                  <span className="text-xs font-semibold">{term.termName}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right font-medium text-xs">₹{term.expected.toLocaleString()}</TableCell>
-                              <TableCell className="text-right text-emerald-600 font-bold text-xs">₹{term.paid.toLocaleString()}</TableCell>
-                              <TableCell className="text-right text-rose-500 font-bold text-xs">₹{term.pending.toLocaleString()}</TableCell>
-                              <TableCell className="text-center">
-                                {getStatusBadge(term.status)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </React.Fragment>
-                      ))}
-                      <TableRow className="h-1 bg-muted/40 hover:bg-muted/40"><TableCell colSpan={6} className="p-0 h-2"></TableCell></TableRow>
-                    </React.Fragment>
-                  ))}
+                                <TableCell className="text-right font-medium text-xs">₹{term.expected.toLocaleString()}</TableCell>
+                                <TableCell className="text-right text-emerald-600 font-bold text-xs">₹{term.paid.toLocaleString()}</TableCell>
+                                <TableCell className="text-right text-rose-500 font-bold text-xs">₹{term.pending.toLocaleString()}</TableCell>
+                                <TableCell className="text-center">
+                                  {getStatusBadge(term.status)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </React.Fragment>
+                        ))}
+                        <TableRow className="h-1 bg-muted/20"><TableCell colSpan={6} className="p-0 h-1"></TableCell></TableRow>
+                      </React.Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -335,7 +349,7 @@ export function FeeRegisterView() {
       {!isLoading && registerData.length === 0 && !isInitialLoad && (
         <div className="text-center py-12 border-2 border-dashed rounded-2xl bg-muted/20">
           <Search className="h-10 w-10 mx-auto text-muted-foreground opacity-20 mb-4" />
-          <p className="text-muted-foreground font-medium">No results to display. Please adjust your filters and click "Generate Register".</p>
+          <p className="text-muted-foreground font-medium">No results to display. Adjust filters and click "Show Records".</p>
         </div>
       )}
     </div>
