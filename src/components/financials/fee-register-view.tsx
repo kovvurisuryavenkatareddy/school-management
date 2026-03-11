@@ -106,10 +106,14 @@ export function FeeRegisterView() {
         return;
       }
 
+      const studentIds = (students || [])
+        .map((s: any) => s.id)
+        .filter((id: any) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id));
+
       const { data: payments, error: paymentError } = await supabase
         .from('payments')
         .select('*')
-        .in('student_id', students.map(s => s.id));
+        .in('student_id', studentIds.length ? studentIds : ["00000000-0000-0000-0000-000000000000"]);
 
       if (paymentError) throw paymentError;
 
@@ -242,7 +246,7 @@ export function FeeRegisterView() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-muted-foreground">Studying Years (Multi-select)</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Studying Years</Label>
               <MultiSelect
                 options={studyingYears.map(sy => ({ label: sy.name, value: sy.name }))}
                 value={selectedStudyingYears}
@@ -252,7 +256,7 @@ export function FeeRegisterView() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-muted-foreground">Terms (Multi-select)</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Terms</Label>
               <MultiSelect
                 options={FIXED_TERMS.map(t => ({ label: t.name, value: t.name }))}
                 value={selectedTerms}
