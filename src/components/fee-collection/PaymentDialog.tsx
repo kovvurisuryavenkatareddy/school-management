@@ -14,10 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StudentDetails, Payment, CashierProfile, FIXED_TERMS } from "@/types";
 import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
-import { MultiSelect } from "@/components/ui/multi-select";
 
 const paymentSchema = z.object({
-  term_names: z.array(z.string()).min(1, "Please select at least one term"),
+  term_name: z.string().min(1, "Please select a term"),
   amount: z.coerce.number().min(0.01, "Amount must be greater than 0"),
   payment_method: z.enum(["cash", "upi"]),
   notes: z.string().optional(),
@@ -52,7 +51,7 @@ export function PaymentDialog({
   const form = useForm<z.infer<typeof paymentSchema>>({
     resolver: zodResolver(paymentSchema),
     defaultValues: { 
-      term_names: [initialTerm],
+      term_name: initialTerm,
       amount: 0, 
       payment_method: "cash", 
       notes: "", 
@@ -60,117 +59,75 @@ export function PaymentDialog({
     },
   });
   
-  const watchedTerms = form.watch("term_names") || [];
+  const watchedTerm = form.watch("term_name");
   const watchedAmount = form.watch("amount");
   const watchedMethod = form.watch("payment_method");
 
-  // Calculate dynamic context based on selected terms
-  const selectionContext = useMemo(() => {
+  // Calculate dynamic context based on selected term
+  const termContext = useMemo(() => {
     const record = studentRecords[0];
-    if (!record || watchedTerms.length === 0) return { total: 0, paid: 0, balance: 0, termBalances: {} };
+    if (!record || !watchedTerm) return { total: 0, paid: 0, balance: 0 };
     
     const normalized = normalizeFeeStructure(record.fee_details);
     const items = normalized[initialYear] || [];
+    const termItems = items.filter(item => item.term_name === watchedTerm);
     
-    let total = 0;
-    let paid = 0;
-    const termBalances: Record<string, number> = {};
-
-    watchedTerms.forEach(termName => {
-      const termItems = items.filter(item => item.term_name === termName);
-      const termTotal = termItems.reduce((sum, i) => sum + i.amount, 0);
-      
-      const termPaid = payments
-        .filter(p => p.fee_type === `${initialYear} - ${termName}`)
+    const total = termItems.reduce((sum, i) => sum + i.amount, 0);
+    const paid = payments
+        .filter(p => p.fee_type === `${initialYear} - ${watchedTerm}`)
         .reduce((sum, p) => sum + p.amount, 0);
-
-      const termBalance = Math.max(0, termTotal - termPaid);
-      
-      total += termTotal;
-      paid += termPaid;
-      termBalances[termName] = termBalance;
-    });
 
     return {
       total,
       paid,
-      balance: Math.max(0, total - paid),
-      termBalances
+      balance: Math.max(0, total - paid)
     };
-  }, [studentRecords, payments, initialYear, watchedTerms]);
+  }, [studentRecords, payments, initialYear, watchedTerm]);
 
   useEffect(() => {
     if (open) {
-      form.setValue("term_names", [initialTerm]);
+      form.setValue("term_name", initialTerm);
+      // Small delay to ensure the memo logic has run for the initial term
       const timer = setTimeout(() => {
-        form.setValue("amount", parseFloat(selectionContext.balance.toFixed(2)));
+        form.setValue("amount", parseFloat(termContext.balance.toFixed(2)));
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [open, initialTerm]);
+  }, [open, initialTerm, termContext.balance, form]);
 
-  // Update amount when selection changes
-  useEffect(() => {
-    if (open) {
-        form.setValue("amount", parseFloat(selectionContext.balance.toFixed(2)));
-    }
-  }, [watchedTerms.length, selectionContext.balance]);
-
-  const isAmountValid = watchedAmount > 0 && watchedAmount <= (selectionContext.balance + 0.1);
+  const isAmountValid = watchedAmount > 0 && watchedAmount <= (termContext.balance + 0.1);
 
   const onSubmit = async (values: z.infer<typeof paymentSchema>) => {
     const studentRecord = studentRecords[0];
     if (!studentRecord) return;
 
     setIsSubmitting(true);
-    const toastId = toast.loading("Recording transactions...");
+    const toastId = toast.loading("Recording transaction...");
 
     try {
-      let remainingToDistribute = values.amount;
-      const createdPayments: Payment[] = [];
+      const feeType = `${initialYear} - ${values.term_name}`;
+      const paymentData = {
+        amount: values.amount,
+        payment_method: values.payment_method,
+        notes: values.notes,
+        fee_type: feeType,
+        student_id: studentRecord.id,
+        cashier_id: cashierProfile?.id || null,
+        utr_number: values.payment_method === 'upi' ? values.utr_number : null,
+      };
 
-      // Loop through selected terms and create individual payment records
-      for (const termName of values.term_names) {
-        if (remainingToDistribute <= 0) break;
+      const { data: newPayment, error } = await supabase.from("payments").insert([paymentData]).select().single();
+      if (error) throw error;
 
-        const termMax = selectionContext.termBalances[termName] || 0;
-        // If it's the last term, give it all the remaining money (handles overpayments)
-        const isLastTerm = termName === values.term_names[values.term_names.length - 1];
-        const amountForThisTerm = isLastTerm ? remainingToDistribute : Math.min(remainingToDistribute, termMax);
-
-        if (amountForThisTerm <= 0) continue;
-
-        const feeType = `${initialYear} - ${termName}`;
-        const paymentData = {
-          amount: amountForThisTerm,
-          payment_method: values.payment_method,
-          notes: values.notes,
-          fee_type: feeType,
-          student_id: studentRecord.id,
-          cashier_id: cashierProfile?.id || null,
-          utr_number: values.payment_method === 'upi' ? values.utr_number : null,
-        };
-
-        const { data: newPayment, error } = await supabase.from("payments").insert([paymentData]).select().single();
-        if (error) throw error;
-        
-        createdPayments.push(newPayment as Payment);
-        remainingToDistribute -= amountForThisTerm;
-      }
-
-      await logActivity("Multi-Term Fee Collection", { 
-        terms: values.term_names, 
-        total_amount: values.amount, 
+      await logActivity("Term Fee Collection", { 
+        term: values.term_name, 
+        amount: values.amount, 
         academic_year: initialYear 
       }, studentRecord.id);
 
-      toast.success("Payments recorded successfully!", { id: toastId });
+      toast.success("Payment recorded successfully!", { id: toastId });
       onOpenChange(false);
-      
-      // Use the last created payment as the anchor for the receipt
-      if (createdPayments.length > 0) {
-        onSuccess(createdPayments[createdPayments.length - 1], studentRecord);
-      }
+      onSuccess(newPayment as Payment, studentRecord);
     } catch (err: any) {
       toast.error(`Payment failed: ${err.message}`, { id: toastId });
     } finally {
@@ -186,36 +143,38 @@ export function PaymentDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             
-            <FormField control={form.control} name="term_names" render={({ field }) => (
+            <FormField control={form.control} name="term_name" render={({ field }) => (
               <FormItem>
-                <FormLabel>Select Term(s)</FormLabel>
-                <MultiSelect
-                  options={FIXED_TERMS.map(t => ({ label: t.name, value: t.name }))}
-                  value={field.value}
-                  onChange={field.onChange}
-                  placeholder="Select terms to pay..."
-                />
+                <FormLabel>Select Term</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl><SelectTrigger><SelectValue placeholder="Select term" /></SelectTrigger></FormControl>
+                  <SelectContent>
+                    {FIXED_TERMS.map(t => (
+                      <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )} />
 
             <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 p-3 text-sm border">
               <div className="space-y-1">
-                <p className="text-muted-foreground text-xs uppercase font-semibold">Selected Total</p>
-                <p className="font-bold">₹{selectionContext.total.toLocaleString()}</p>
+                <p className="text-muted-foreground text-xs uppercase font-semibold">Term Total</p>
+                <p className="font-bold">₹{termContext.total.toLocaleString()}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground text-xs uppercase font-semibold">Remaining Balance</p>
-                <p className="font-bold text-red-600">₹{selectionContext.balance.toLocaleString()}</p>
+                <p className="font-bold text-red-600">₹{termContext.balance.toLocaleString()}</p>
               </div>
             </div>
 
             <FormField control={form.control} name="amount" render={({ field }) => (
               <FormItem>
-                <FormLabel className="font-bold">Total Amount to Pay</FormLabel>
+                <FormLabel className="font-bold">Amount to Pay</FormLabel>
                 <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
-                {watchedAmount > selectionContext.balance + 0.1 && (
-                  <p className="text-[0.8rem] font-medium text-destructive">Warning: Amount exceeds selected balance.</p>
+                {watchedAmount > termContext.balance + 0.1 && (
+                  <p className="text-[0.8rem] font-medium text-destructive">Warning: Amount exceeds term balance.</p>
                 )}
                 <FormMessage />
               </FormItem>
