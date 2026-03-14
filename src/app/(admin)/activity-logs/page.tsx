@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -16,13 +16,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Search } from "lucide-react";
+import { ExternalLink, Search, Eye, ClipboardList } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type ActivityLog = {
   id: string;
@@ -41,6 +49,7 @@ export default function ActivityLogsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedLog, setSelectedLog] = useState<ActivityLog | null>(null);
 
   useEffect(() => {
     const fetchLogs = async () => {
@@ -52,7 +61,6 @@ export default function ActivityLogsPage() {
         .from("activity_logs")
         .select("*, cashiers(name), students(name, roll_number)", { count: 'exact' });
 
-      // If we are searching, we fetch all and filter in memory for fuzzy behavior OR use ilike (better)
       if (searchTerm) {
         query = query.or(`action.ilike.%${searchTerm}%,details->>cashier_name.ilike.%${searchTerm}%`);
       }
@@ -79,105 +87,196 @@ export default function ActivityLogsPage() {
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
-  const renderDetails = (log: ActivityLog) => {
+  const renderTableSummary = (log: ActivityLog) => {
     if (!log.details) return "N/A";
     
     switch (log.action) {
       case 'Fee Collection':
-        return `Amount: ${log.details.amount}, Type: ${log.details.fee_type || 'N/A'}`;
-      case 'Concession Applied':
-        return (
-          <div className="flex flex-col gap-1">
-            <span className="text-xs">Amount: ₹{log.details.amount.toLocaleString()}</span>
-            {log.details.document_url && (
-              <Button variant="link" size="sm" className="h-auto p-0 justify-start text-xs font-bold" asChild>
-                <a href={log.details.document_url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="mr-1 h-3 w-3" /> View Permission Letter
-                </a>
-              </Button>
-            )}
-          </div>
-        );
       case 'Invoice Payment':
-        return `Amount: ${log.details.amount}, Desc: ${log.details.description || 'N/A'}`;
+        return `₹${(log.details.amount || 0).toLocaleString()}`;
       case 'Bulk Payment Import':
-        return `Count: ${log.details.count} records imported.`;
+        return `${log.details.count} records`;
+      case 'Concession Applied':
+        return `₹${(log.details.amount || 0).toLocaleString()}`;
       default:
-        return typeof log.details === 'object' ? JSON.stringify(log.details) : String(log.details);
+        return "See details";
     }
   };
 
+  const formatKey = (key: string) => {
+    return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
   return (
-    <Card>
-      <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <CardTitle>Activity Logs</CardTitle>
-          <CardDescription>Review system-wide actions performed by platform users.</CardDescription>
-        </div>
-        <div className="relative w-full max-w-xs">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Fuzzy search logs..." 
-            className="pl-9 h-9"
-            value={searchTerm}
-            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+            <CardTitle>Activity Logs</CardTitle>
+            <CardDescription>Review system-wide actions performed by platform users.</CardDescription>
+          </div>
+          <div className="relative w-full max-w-xs">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder="Fuzzy search logs..." 
+              className="pl-9 h-9"
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="pl-4">Date & Time</TableHead>
+                  <TableHead>User</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Student</TableHead>
+                  <TableHead>Summary</TableHead>
+                  <TableHead className="text-right pr-4">Details</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow><TableCell colSpan={6} className="text-center py-10">Loading audit trail...</TableCell></TableRow>
+                ) : logs.length > 0 ? (
+                  logs.map((log) => (
+                    <TableRow key={log.id} className="group">
+                      <TableCell className="text-[10px] pl-4 text-muted-foreground font-mono">
+                        {new Date(log.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                      </TableCell>
+                      <TableCell>
+                        {log.cashiers ? (
+                          <span className="font-medium text-xs">{log.cashiers.name}</span>
+                        ) : (
+                          <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[9px] h-4">ADMIN</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell><Badge variant="secondary" className="text-[9px] uppercase font-bold tracking-tight h-5">{log.action}</Badge></TableCell>
+                      <TableCell className="text-xs">
+                        {log.students ? (
+                          <div className="flex flex-col">
+                              <span className="font-semibold">{log.students.name}</span>
+                              <span className="text-muted-foreground text-[10px]">Roll: {log.students.roll_number}</span>
+                          </div>
+                        ) : <span className="text-muted-foreground italic">N/A</span>}
+                      </TableCell>
+                      <TableCell className="text-xs font-medium">
+                        {renderTableSummary(log)}
+                      </TableCell>
+                      <TableCell className="text-right pr-4">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 hover:bg-primary/10 hover:text-primary transition-colors"
+                          onClick={() => setSelectedLog(log)}
+                        >
+                          <Eye className="h-4 w-4" />
+                          <span className="sr-only">View Detail</span>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground italic">No logs found matching your search.</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            totalCount={totalCount}
+            pageSize={PAGE_SIZE}
           />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                <TableHead className="pl-4">Date & Time</TableHead>
-                <TableHead>User</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Student Context</TableHead>
-                <TableHead>Details</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-10">Loading audit trail...</TableCell></TableRow>
-              ) : logs.length > 0 ? (
-                logs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell className="text-xs pl-4">{new Date(log.timestamp).toLocaleString()}</TableCell>
-                    <TableCell>
-                      {log.cashiers ? (
-                        <span className="font-medium text-xs">{log.cashiers.name}</span>
-                      ) : (
-                        <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px]">PLATFORM ADMIN</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell><Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-tight">{log.action}</Badge></TableCell>
-                    <TableCell className="text-xs">
-                      {log.students ? (
-                        <div className="flex flex-col">
-                            <span className="font-semibold">{log.students.name}</span>
-                            <span className="text-muted-foreground text-[10px]">Roll: {log.students.roll_number}</span>
-                        </div>
-                      ) : 'N/A'}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {renderDetails(log)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground italic">No logs found matching your search.</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-        <DataTablePagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={setCurrentPage}
-          totalCount={totalCount}
-          pageSize={PAGE_SIZE}
-        />
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      {/* Full Details Dialog */}
+      <Dialog open={!!selectedLog} onOpenChange={(open) => !open && setSelectedLog(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-primary mb-1">
+              <ClipboardList className="h-5 w-5" />
+              <DialogTitle className="text-xl">Action Insight</DialogTitle>
+            </div>
+            <DialogDescription>
+              Complete metadata for the action performed on {selectedLog && new Date(selectedLog.timestamp).toLocaleString()}.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <ScrollArea className="max-h-[60vh] pr-4">
+            {selectedLog && (
+              <div className="space-y-6 py-4">
+                {/* Header Context */}
+                <div className="grid grid-cols-2 gap-4 bg-muted/30 p-4 rounded-xl border shadow-inner">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Performed By</p>
+                    <p className="font-semibold text-sm">{selectedLog.cashiers?.name || "System Administrator"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Event Category</p>
+                    <Badge variant="secondary" className="font-black text-[10px]">{selectedLog.action}</Badge>
+                  </div>
+                  {selectedLog.students && (
+                    <div className="col-span-2 pt-2 border-t mt-2">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Student Reference</p>
+                      <p className="font-semibold text-sm">{selectedLog.students.name} ({selectedLog.students.roll_number})</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Specific Details List */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold text-primary uppercase tracking-tighter flex items-center gap-2">
+                    <div className="h-1 w-4 bg-primary rounded-full" />
+                    Activity Metadata
+                  </h4>
+                  
+                  <div className="grid gap-3">
+                    {selectedLog.details && typeof selectedLog.details === 'object' ? (
+                      Object.entries(selectedLog.details).map(([key, value]) => {
+                        if (key === 'document_url' && value) {
+                          return (
+                            <div key={key} className="flex flex-col gap-2 p-3 rounded-lg border bg-blue-50/50">
+                              <p className="text-[10px] font-bold text-blue-600 uppercase">{formatKey(key)}</p>
+                              <Button variant="outline" size="sm" className="w-full bg-white h-9 font-bold text-blue-700" asChild>
+                                <a href={value as string} target="_blank" rel="noopener noreferrer">
+                                  <ExternalLink className="mr-2 h-4 w-4" /> View Permission Document
+                                </a>
+                              </Button>
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div key={key} className="flex justify-between items-center py-2 border-b last:border-0">
+                            <span className="text-xs text-muted-foreground font-medium">{formatKey(key)}</span>
+                            <span className="text-xs font-black">
+                              {typeof value === 'number' && (key.includes('amount') || key.includes('balance')) 
+                                ? `₹${value.toLocaleString()}` 
+                                : String(value)}
+                            </span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="text-xs italic text-muted-foreground">No metadata recorded for this action.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </ScrollArea>
+          
+          <div className="flex justify-end pt-4 border-t">
+            <Button variant="outline" onClick={() => setSelectedLog(null)}>Close Inspection</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
