@@ -96,16 +96,22 @@ export function PaymentDialog({
     };
   }, [feeStructure, payments, initialYear, watchedTerm]);
 
+  // Effect 1: Handle initial form population when dialog opens
   useEffect(() => {
     if (open) {
       form.setValue("term_name", initialTerm);
-      // Small delay ensures the form logic registers the default term selection first
-      const timer = setTimeout(() => {
-        form.setValue("amount", parseFloat(termContext.balance.toFixed(2)));
-      }, 0);
-      return () => clearTimeout(timer);
+      form.setValue("payment_method", "cash");
+      form.setValue("notes", "");
+      form.setValue("utr_number", "");
     }
-  }, [open, initialTerm, termContext.balance, form]);
+  }, [open, initialTerm, form]);
+
+  // Effect 2: Update the collection amount whenever the selected term changes
+  useEffect(() => {
+    if (open && watchedTerm) {
+        form.setValue("amount", parseFloat(termContext.balance.toFixed(2)));
+    }
+  }, [watchedTerm, termContext.balance, open, form]);
 
   const isAmountValid = watchedAmount > 0 && watchedAmount <= (termContext.balance + 0.1);
 
