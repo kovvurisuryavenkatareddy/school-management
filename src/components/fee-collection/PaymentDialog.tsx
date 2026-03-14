@@ -65,7 +65,9 @@ export function PaymentDialog({
 
   // Calculate dynamic context based on selected term
   const termContext = useMemo(() => {
-    const record = studentRecords.find(r => r.studying_year === initialYear) || studentRecords[0];
+    // We always use the first student record as the context anchor, 
+    // as it contains the master fee_details for all years.
+    const record = studentRecords[0];
     if (!record) return { total: 0, paid: 0, balance: 0, breakdown: [] };
     
     const normalized = normalizeFeeStructure(record.fee_details);
@@ -74,7 +76,7 @@ export function PaymentDialog({
     
     const total = termItems.reduce((sum, i) => sum + i.amount, 0);
     const paid = payments
-        .filter(p => p.fee_type.startsWith(`${initialYear} - ${watchedTerm}`))
+        .filter(p => p.fee_type === `${initialYear} - ${watchedTerm}`)
         .reduce((sum, p) => sum + p.amount, 0);
 
     return {
@@ -88,14 +90,18 @@ export function PaymentDialog({
   useEffect(() => {
     if (open) {
       form.setValue("term_name", initialTerm);
-      form.setValue("amount", parseFloat(termContext.balance.toFixed(2)));
+      // Wait for memo calculation to finish or trigger correctly
+      const timer = setTimeout(() => {
+        form.setValue("amount", parseFloat(termContext.balance.toFixed(2)));
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [open, initialTerm, termContext.balance, form]);
 
-  const isAmountValid = watchedAmount > 0 && watchedAmount <= (termContext.balance + 0.01);
+  const isAmountValid = watchedAmount > 0 && watchedAmount <= (termContext.balance + 0.05);
 
   const onSubmit = async (values: z.infer<typeof paymentSchema>) => {
-    const studentRecord = studentRecords.find(r => r.studying_year === initialYear) || studentRecords[0];
+    const studentRecord = studentRecords[0];
     if (!studentRecord) return;
 
     setIsSubmitting(true);
@@ -143,7 +149,6 @@ export function PaymentDialog({
               </FormItem>
             )} />
 
-            {/* Term Summary Display */}
             <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 p-3 text-sm border">
               <div className="space-y-1">
                 <p className="text-muted-foreground text-xs uppercase font-semibold">Term Total</p>
@@ -159,7 +164,7 @@ export function PaymentDialog({
               <FormItem>
                 <FormLabel className="font-bold">Amount to Pay</FormLabel>
                 <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
-                {watchedAmount > termContext.balance && (
+                {watchedAmount > termContext.balance + 0.05 && (
                   <p className="text-[0.8rem] font-medium text-destructive">Warning: Amount exceeds balance.</p>
                 )}
                 <FormMessage />

@@ -95,7 +95,6 @@ export function FeeRegisterView() {
       if (selectedEnrollmentYear !== "all") studentQuery = studentQuery.eq('academic_year_id', selectedEnrollmentYear);
       if (selectedClass !== "all") studentQuery = studentQuery.eq('class', selectedClass);
       
-      // We fetch all relevant students and handle granular row filtering in JS
       const { data: students, error: studentError } = await studentQuery;
       if (studentError) throw studentError;
 
@@ -106,28 +105,31 @@ export function FeeRegisterView() {
         return;
       }
 
-      const studentIds = (students || [])
-        .map((s: any) => s.id)
-        .filter((id: any) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id));
-
-      const { data: payments, error: paymentError } = await supabase
-        .from('payments')
-        .select('*')
-        .in('student_id', studentIds.length ? studentIds : ["00000000-0000-0000-0000-000000000000"]);
-
-      if (paymentError) throw paymentError;
+      const studentIds = students.map((s: any) => s.id);
+      
+      // Batch fetch payments to avoid URL length issues (400 Bad Request)
+      const allPayments: any[] = [];
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < studentIds.length; i += CHUNK_SIZE) {
+        const chunk = studentIds.slice(i, i + CHUNK_SIZE);
+        const { data: chunkPayments, error: paymentError } = await supabase
+          .from('payments')
+          .select('*')
+          .in('student_id', chunk);
+        
+        if (paymentError) throw paymentError;
+        if (chunkPayments) allPayments.push(...chunkPayments);
+      }
 
       const processed: StudentRegisterRecord[] = students.map(student => {
         const normalizedFee = normalizeFeeStructure(student.fee_details);
         
-        // Filter the years (1st Year, 2nd Year, etc.) based on MultiSelect
         const yearEntries = Object.entries(normalizedFee).filter(([yearName]) => {
           if (selectedStudyingYears.length === 0) return true;
           return selectedStudyingYears.includes(yearName);
         });
 
         const years: YearData[] = yearEntries.map(([yearName, feeItems]) => {
-          // Filter the terms (Term 1, Term 2, etc.) based on MultiSelect
           const terms: TermData[] = FIXED_TERMS.filter(t => {
             if (selectedTerms.length === 0) return true;
             return selectedTerms.includes(t.name);
@@ -135,7 +137,7 @@ export function FeeRegisterView() {
             const termItem = feeItems.find(i => i.term_name === term.name);
             const expected = termItem?.amount || 0;
             
-            const paid = (payments || [])
+            const paid = allPayments
               .filter(p => p.student_id === student.id && p.fee_type === `${yearName} - ${term.name}`)
               .reduce((sum, p) => sum + p.amount, 0);
 
@@ -143,9 +145,9 @@ export function FeeRegisterView() {
             let status: 'Paid' | 'Pending' | 'Partial' = 'Pending';
             
             if (expected > 0) {
-              if (paid >= expected) status = 'Paid';
-              else if (paid > 0) status = 'Partial';
-            } else if (paid > 0) {
+              if (paid >= expected - 0.05) status = 'Paid';
+              else if (paid > 0.01) status = 'Partial';
+            } else if (paid > 0.01) {
               status = 'Paid';
             } else {
               status = 'Paid';
@@ -155,7 +157,7 @@ export function FeeRegisterView() {
           });
 
           return { yearName, terms };
-        }).filter(y => y.terms.length > 0); // Remove years that have no terms left after filtering
+        }).filter(y => y.terms.length > 0);
 
         return {
           id: student.id,
@@ -165,7 +167,7 @@ export function FeeRegisterView() {
           section: student.section,
           years
         };
-      }).filter(s => s.years.length > 0); // Only keep students who have at least one matching year/term
+      }).filter(s => s.years.length > 0);
 
       setRegisterData(processed);
       toast.success(`Loaded records for ${processed.length} students.`);
@@ -246,7 +248,7 @@ export function FeeRegisterView() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-muted-foreground">Studying Years</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Studying Years (Multi-select)</Label>
               <MultiSelect
                 options={studyingYears.map(sy => ({ label: sy.name, value: sy.name }))}
                 value={selectedStudyingYears}
@@ -256,7 +258,7 @@ export function FeeRegisterView() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-muted-foreground">Terms</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Terms (Multi-select)</Label>
               <MultiSelect
                 options={FIXED_TERMS.map(t => ({ label: t.name, value: t.name }))}
                 value={selectedTerms}

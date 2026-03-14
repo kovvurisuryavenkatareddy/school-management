@@ -203,7 +203,6 @@ export default function ExpensesPage() {
     setIsSubmitting(true);
     
     if (editingExpense) {
-      // When admin edits, we only update form values, preserving the original cashier_id
       const { error } = await supabase
         .from("expenses")
         .update(values)
@@ -217,7 +216,6 @@ export default function ExpensesPage() {
         setDialogOpen(false);
       }
     } else {
-      // When creating a new expense
       const dataToSubmit = {
         ...values,
         cashier_id: cashierProfile?.id || null,
@@ -264,10 +262,10 @@ export default function ExpensesPage() {
   const handleDownload = async (format: 'csv' | 'pdf') => {
     if (!exportDateRange) return;
     const { start, end } = exportDateRange;
-    const toastId = toast.loading("Generating report...");
+    const toastId = toast.loading("Generating separated reports...");
 
     let paymentsQuery = supabase.from("payments")
-      .select("created_at, amount, fee_type, notes, payment_method, students(name, roll_number), cashiers(name)")
+      .select("created_at, amount, fee_type, notes, payment_method, students(name, roll_number, class), cashiers(name)")
       .gte('created_at', new Date(start).toISOString())
       .lte('created_at', new Date(end + 'T23:59:59Z').toISOString());
 
@@ -285,7 +283,6 @@ export default function ExpensesPage() {
         expensesQuery = expensesQuery.eq('cashier_id', selectedCashier);
       }
       
-      // Apply Payment Mode filter to report queries
       if (selectedPaymentMode && selectedPaymentMode !== 'all') {
         expensesQuery = expensesQuery.eq('payment_mode', selectedPaymentMode);
         paymentsQuery = paymentsQuery.eq('payment_method', selectedPaymentMode.toLowerCase());
@@ -302,39 +299,57 @@ export default function ExpensesPage() {
     const paymentsData = paymentsRes.data || [];
     const expensesData = expensesRes.data || [];
 
+    const cashPayments = paymentsData.filter(p => p.payment_method?.toLowerCase() === 'cash');
+    const upiPayments = paymentsData.filter(p => p.payment_method?.toLowerCase() === 'upi');
+
     if (paymentsData.length === 0 && expensesData.length === 0) {
-      toast.info("No payments or expenses recorded in the selected date range.", { id: toastId });
+      toast.info("No records found in the selected date range.", { id: toastId });
       setExportDialogOpen(false);
       return;
     }
 
-    let totalIncome = paymentsData.reduce((sum, p) => sum + p.amount, 0);
-    let totalExpense = expensesData.reduce((sum, e) => sum + e.amount, 0);
-
     if (format === 'pdf') {
       const doc = new jsPDF();
-      doc.text(`Report from ${start} to ${end}`, 14, 15);
+      doc.text(`Financial Audit Report: ${start} to ${end}`, 14, 15);
       let lastY = 15;
 
-      if (paymentsData.length > 0) {
+      if (cashPayments.length > 0) {
         autoTable(doc, {
           startY: lastY + 7,
-          head: [['Payments (Income)']],
+          head: [['CASH PAYMENTS (Income)']],
           theme: 'plain',
-          styles: { fontStyle: 'bold' }
+          styles: { fontStyle: 'bold', textColor: [0, 100, 0] }
         });
         autoTable(doc, {
-          head: [["Date", "Student", "Description", "Mode", "Cashier", "Amount"]],
-          body: paymentsData.map((p: any) => [
-            new Date(p.created_at).toLocaleDateString(),
-            `${p.students?.name || 'N/A'} (${p.students?.roll_number || 'N/A'})`,
-            p.fee_type,
-            p.payment_method,
-            p.cashiers?.name || 'Admin/System',
+          head: [["Student Name", "Class", "Amount", "Date", "Cashier"]],
+          body: cashPayments.map((p: any) => [
+            p.students?.name || 'N/A',
+            p.students?.class || 'N/A',
             p.amount.toFixed(2),
+            new Date(p.created_at).toLocaleDateString(),
+            p.cashiers?.name || 'Admin',
           ]),
-          foot: [[{ content: 'Total Income:', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } }, { content: totalIncome.toFixed(2), styles: { fontStyle: 'bold', halign: 'right' } }]],
-          showFoot: 'lastPage',
+          theme: 'striped',
+        });
+        lastY = (doc as any).lastAutoTable.finalY;
+      }
+
+      if (upiPayments.length > 0) {
+        autoTable(doc, {
+          startY: lastY + 10,
+          head: [['UPI PAYMENTS (Income)']],
+          theme: 'plain',
+          styles: { fontStyle: 'bold', textColor: [0, 0, 100] }
+        });
+        autoTable(doc, {
+          head: [["Student Name", "Class", "Amount", "Date", "Cashier"]],
+          body: upiPayments.map((p: any) => [
+            p.students?.name || 'N/A',
+            p.students?.class || 'N/A',
+            p.amount.toFixed(2),
+            new Date(p.created_at).toLocaleDateString(),
+            p.cashiers?.name || 'Admin',
+          ]),
           theme: 'striped',
         });
         lastY = (doc as any).lastAutoTable.finalY;
@@ -343,9 +358,9 @@ export default function ExpensesPage() {
       if (expensesData.length > 0) {
         autoTable(doc, {
           startY: lastY + 10,
-          head: [['Expenses']],
+          head: [['EXPENSES']],
           theme: 'plain',
-          styles: { fontStyle: 'bold' }
+          styles: { fontStyle: 'bold', textColor: [100, 0, 0] }
         });
         autoTable(doc, {
           head: [["Date", "Department", "Description", "Mode", "Cashier", "Amount"]],
@@ -354,79 +369,49 @@ export default function ExpensesPage() {
             e.departments?.name || "N/A",
             e.description || "",
             e.payment_mode || "N/A",
-            e.cashiers?.name || 'Admin/System',
+            e.cashiers?.name || 'Admin',
             e.amount.toFixed(2),
           ]),
-          foot: [[{ content: 'Total Expense:', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } }, { content: totalExpense.toFixed(2), styles: { fontStyle: 'bold', halign: 'right' } }]],
-          showFoot: 'lastPage',
           theme: 'striped',
         });
-        lastY = (doc as any).lastAutoTable.finalY;
       }
 
-      autoTable(doc, {
-        startY: lastY + 10,
-        head: [[{ content: 'Summary', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold' } }]],
-        body: [
-            ['Net Balance:', { content: (totalIncome - totalExpense).toFixed(2), styles: { halign: 'right' } }]
-        ],
-        theme: 'grid',
-      });
+      doc.save(`Financial_Report_${start}_to_${end}.pdf`);
 
-      doc.save(`report_${start}_to_${end}.pdf`);
+    } else {
+      const reportRows = [];
+      reportRows.push([`Financial Report from ${start} to ${end}`]);
+      reportRows.push([]);
 
-    } else { // CSV export
-      const reportData = [];
-      reportData.push([`Report from ${start} to ${end}`]);
-      reportData.push([]);
+      if (cashPayments.length > 0) {
+        reportRows.push(["CASH PAYMENTS"]);
+        reportRows.push(["Student Name", "Class", "Amount", "Date", "Cashier"]);
+        cashPayments.forEach(p => reportRows.push([p.students?.name, p.students?.class, p.amount, new Date(p.created_at).toLocaleDateString(), p.cashiers?.name || 'Admin']));
+        reportRows.push([]);
+      }
 
-      reportData.push(["Payments (Income)"]);
-      reportData.push(["Date", "Student Name", "Roll Number", "Description", "Payment Mode", "Cashier", "Amount"]);
-      paymentsData.forEach((p: any) => {
-        reportData.push([
-          new Date(p.created_at).toLocaleDateString(),
-          p.students?.name || 'N/A',
-          p.students?.roll_number || 'N/A',
-          p.fee_type,
-          p.payment_method,
-          p.cashiers?.name || 'Admin/System',
-          p.amount.toFixed(2),
-        ]);
-      });
-      reportData.push(["", "", "", "", "", "Total Income:", totalIncome.toFixed(2)]);
-      reportData.push([]);
+      if (upiPayments.length > 0) {
+        reportRows.push(["UPI PAYMENTS"]);
+        reportRows.push(["Student Name", "Class", "Amount", "Date", "Cashier"]);
+        upiPayments.forEach(p => reportRows.push([p.students?.name, p.students?.class, p.amount, new Date(p.created_at).toLocaleDateString(), p.cashiers?.name || 'Admin']));
+        reportRows.push([]);
+      }
 
-      reportData.push(["Expenses"]);
-      reportData.push(["Date", "Department", "Description", "Payment Mode", "Cashier", "Amount"]);
-      expensesData.forEach((e: any) => {
-        reportData.push([
-          new Date(e.expense_date).toLocaleDateString(),
-          e.departments?.name || "N/A",
-          e.description || "",
-          e.payment_mode || "N/A",
-          e.cashiers?.name || 'Admin/System',
-          e.amount.toFixed(2),
-        ]);
-      });
-      reportData.push(["", "", "", "", "Total Expense:", totalExpense.toFixed(2)]);
-      reportData.push([]);
+      if (expensesData.length > 0) {
+        reportRows.push(["EXPENSES"]);
+        reportRows.push(["Date", "Department", "Description", "Mode", "Cashier", "Amount"]);
+        expensesData.forEach(e => reportRows.push([new Date(e.expense_date).toLocaleDateString(), e.departments?.name, e.description, e.payment_mode, e.cashiers?.name || 'Admin', e.amount]));
+      }
 
-      reportData.push(["Summary"]);
-      reportData.push(["Net Balance:", (totalIncome - totalExpense).toFixed(2)]);
-
-      const csv = Papa.unparse(reportData);
+      const csv = Papa.unparse(reportRows);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
-      link.setAttribute("download", `report_${start}_to_${end}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
+      link.href = URL.createObjectURL(blob);
+      link.download = `Financial_Report_${start}_to_${end}.csv`;
       link.click();
-      document.body.removeChild(link);
     }
     
-    toast.success("Report downloaded successfully.", { id: toastId });
+    toast.success("Separated report generated successfully.", { id: toastId });
     setExportDialogOpen(false);
   };
 
@@ -461,7 +446,7 @@ export default function ExpensesPage() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <CardTitle>Expenses & Reports</CardTitle>
-              <CardDescription>Track expenses and generate financial reports.</CardDescription>
+              <CardDescription>Track expenses and generate separated payment reports.</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
