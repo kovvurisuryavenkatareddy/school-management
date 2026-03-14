@@ -87,22 +87,6 @@ export default function ActivityLogsPage() {
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
-  const renderTableSummary = (log: ActivityLog) => {
-    if (!log.details) return "N/A";
-    
-    switch (log.action) {
-      case 'Fee Collection':
-      case 'Invoice Payment':
-        return `₹${(log.details.amount || 0).toLocaleString()}`;
-      case 'Bulk Payment Import':
-        return `${log.details.count} records`;
-      case 'Concession Applied':
-        return `₹${(log.details.amount || 0).toLocaleString()}`;
-      default:
-        return "See details";
-    }
-  };
-
   const formatKey = (key: string) => {
     return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
@@ -134,13 +118,12 @@ export default function ActivityLogsPage() {
                   <TableHead>User</TableHead>
                   <TableHead>Action</TableHead>
                   <TableHead>Student</TableHead>
-                  <TableHead>Summary</TableHead>
                   <TableHead className="text-right pr-4">Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-10">Loading audit trail...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-10">Loading audit trail...</TableCell></TableRow>
                 ) : logs.length > 0 ? (
                   logs.map((log) => (
                     <TableRow key={log.id} className="group">
@@ -163,9 +146,6 @@ export default function ActivityLogsPage() {
                           </div>
                         ) : <span className="text-muted-foreground italic">N/A</span>}
                       </TableCell>
-                      <TableCell className="text-xs font-medium">
-                        {renderTableSummary(log)}
-                      </TableCell>
                       <TableCell className="text-right pr-4">
                         <Button 
                           variant="ghost" 
@@ -180,7 +160,7 @@ export default function ActivityLogsPage() {
                     </TableRow>
                   ))
                 ) : (
-                  <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground italic">No logs found matching your search.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground italic">No logs found matching your search.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
