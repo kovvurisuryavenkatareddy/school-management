@@ -327,8 +327,8 @@ export default function ExpensesPage() {
         autoTable(doc, {
           head: [["Student Name", "Class", "Amount", "Date", "Cashier"]],
           body: cashPayments.map((p: any) => [
-            p.students?.name || 'N/A',
-            p.students?.class || 'N/A',
+            (Array.isArray(p.students) ? p.students[0]?.name : p.students?.name) || 'N/A',
+            (Array.isArray(p.students) ? p.students[0]?.class : p.students?.class) || 'N/A',
             p.amount.toFixed(2),
             new Date(p.created_at).toLocaleDateString(),
             p.cashiers?.name || 'Admin',
@@ -348,8 +348,8 @@ export default function ExpensesPage() {
         autoTable(doc, {
           head: [["Student Name", "Class", "Amount", "Date", "Cashier"]],
           body: upiPayments.map((p: any) => [
-            p.students?.name || 'N/A',
-            p.students?.class || 'N/A',
+            (Array.isArray(p.students) ? p.students[0]?.name : p.students?.name) || 'N/A',
+            (Array.isArray(p.students) ? p.students[0]?.class : p.students?.class) || 'N/A',
             p.amount.toFixed(2),
             new Date(p.created_at).toLocaleDateString(),
             p.cashiers?.name || 'Admin',
@@ -381,7 +381,6 @@ export default function ExpensesPage() {
         lastY = (doc as any).lastAutoTable.finalY;
       }
 
-      // Add Final Summary Table with correct column handling
       autoTable(doc, {
         startY: lastY + 15,
         head: [[{ content: 'FINANCIAL SUMMARY', colSpan: 2, styles: { halign: 'left', fillColor: [240, 240, 240], textColor: [0, 0, 0] } }]],
@@ -408,21 +407,27 @@ export default function ExpensesPage() {
       if (cashPayments.length > 0) {
         reportRows.push(["CASH PAYMENTS"]);
         reportRows.push(["Student Name", "Class", "Amount", "Date", "Cashier"]);
-        cashPayments.forEach(p => reportRows.push([p.students?.name, p.students?.class, p.amount, new Date(p.created_at).toLocaleDateString(), p.cashiers?.name || 'Admin']));
+        cashPayments.forEach((p: any) => { 
+          const s = Array.isArray(p.students) ? p.students[0] : p.students; 
+          reportRows.push([s?.name ?? 'N/A', s?.class ?? 'N/A', p.amount, new Date(p.created_at).toLocaleDateString(), p.cashiers?.name || 'Admin']); 
+        });
         reportRows.push([]);
       }
 
       if (upiPayments.length > 0) {
         reportRows.push(["UPI PAYMENTS"]);
         reportRows.push(["Student Name", "Class", "Amount", "Date", "Cashier"]);
-        upiPayments.forEach(p => reportRows.push([p.students?.name, p.students?.class, p.amount, new Date(p.created_at).toLocaleDateString(), p.cashiers?.name || 'Admin']));
+        upiPayments.forEach((p: any) => { 
+          const s = Array.isArray(p.students) ? p.students[0] : p.students; 
+          reportRows.push([s?.name ?? 'N/A', s?.class ?? 'N/A', p.amount, new Date(p.created_at).toLocaleDateString(), p.cashiers?.name || 'Admin']); 
+        });
         reportRows.push([]);
       }
 
       if (expensesData.length > 0) {
         reportRows.push(["EXPENSES"]);
         reportRows.push(["Date", "Department", "Description", "Mode", "Cashier", "Amount"]);
-        expensesData.forEach(e => reportRows.push([new Date(e.expense_date).toLocaleDateString(), e.departments?.name, e.description, e.payment_mode, e.cashiers?.name || 'Admin', e.amount]));
+        expensesData.forEach((e: any) => reportRows.push([new Date(e.expense_date).toLocaleDateString(), e.departments?.name, e.description, e.payment_mode, e.cashiers?.name || 'Admin', e.amount]));
       }
 
       reportRows.push([]);
