@@ -153,7 +153,7 @@ export function FeeSummaryTable({ student, payments = [], onPay, onEditConcessio
                           onClick={() => firstUnpaidTerm && onPay(yearData.year, firstUnpaidTerm.name)}
                           className="h-8 min-w-[80px] text-[10px] font-black uppercase tracking-wider"
                         >
-                          {firstUnpaidTerm ? "Pay Multiple" : "Settled"}
+                          {firstUnpaidTerm ? "Pay" : "Settled"}
                         </Button>
                       </TableCell>
                     );
