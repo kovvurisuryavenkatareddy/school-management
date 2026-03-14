@@ -381,19 +381,21 @@ export default function ExpensesPage() {
         lastY = (doc as any).lastAutoTable.finalY;
       }
 
-      // Add Final Summary Table
+      // Add Final Summary Table with correct column handling
       autoTable(doc, {
         startY: lastY + 15,
-        head: [['FINANCIAL SUMMARY']],
+        head: [[{ content: 'FINANCIAL SUMMARY', colSpan: 2, styles: { halign: 'left', fillColor: [240, 240, 240], textColor: [0, 0, 0] } }]],
         body: [
             ['Total Income (Collections)', `Rs. ${totalIncome.toFixed(2)}`],
             ['Total Expenditure (Expenses)', `Rs. ${totalExpense.toFixed(2)}`],
             ['Net Period Balance', `Rs. ${netBalance.toFixed(2)}`]
         ],
         theme: 'grid',
-        styles: { fontStyle: 'bold', halign: 'right' },
-        headStyles: { halign: 'left', fillColor: [240, 240, 240], textColor: [0, 0, 0] },
-        columnStyles: { 0: { halign: 'left', cellWidth: 100 } }
+        styles: { fontStyle: 'bold' },
+        columnStyles: { 
+            0: { halign: 'left', cellWidth: 100 },
+            1: { halign: 'right' }
+        }
       });
 
       doc.save(`Financial_Report_${start}_to_${end}.pdf`);
