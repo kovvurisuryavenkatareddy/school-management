@@ -12,7 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { StudentDetails, Payment, CashierProfile, FIXED_TERMS } from "@/types";
+import { StudentDetails, Payment, CashierProfile } from "@/types";
 import { normalizeFeeStructure } from "@/lib/fee-structure-utils";
 
 const paymentSchema = z.object({
@@ -48,6 +48,19 @@ export function PaymentDialog({
 }: PaymentDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  // Normalize the master record's fee structure
+  const masterRecord = studentRecords[0];
+  const feeStructure = useMemo(() => masterRecord ? normalizeFeeStructure(masterRecord.fee_details) : {}, [masterRecord]);
+  
+  // Extract all unique term names available for the selected academic year
+  const availableTerms = useMemo(() => {
+    const yearItems = feeStructure[initialYear] || [];
+    // We only want terms that aren't the special "Total" / "Yearly Concession" item
+    return Array.from(new Set(yearItems.map(item => item.term_name)))
+      .filter(t => t && t !== 'Total')
+      .sort((a, b) => a.localeCompare(b));
+  }, [feeStructure, initialYear]);
+
   const form = useForm<z.infer<typeof paymentSchema>>({
     resolver: zodResolver(paymentSchema),
     defaultValues: { 
@@ -63,18 +76,17 @@ export function PaymentDialog({
   const watchedAmount = form.watch("amount");
   const watchedMethod = form.watch("payment_method");
 
-  // Calculate dynamic context based on selected term
+  // Calculate balance for the selected term
   const termContext = useMemo(() => {
-    const record = studentRecords[0];
-    if (!record || !watchedTerm) return { total: 0, paid: 0, balance: 0 };
+    if (!watchedTerm || !initialYear) return { total: 0, paid: 0, balance: 0 };
     
-    const normalized = normalizeFeeStructure(record.fee_details);
-    const items = normalized[initialYear] || [];
-    const termItems = items.filter(item => item.term_name === watchedTerm);
+    const items = feeStructure[initialYear] || [];
+    // Use inclusive matching for terms to handle legacy data or typos
+    const termItems = items.filter(item => item.term_name.toLowerCase() === watchedTerm.toLowerCase());
     
     const total = termItems.reduce((sum, i) => sum + i.amount, 0);
     const paid = payments
-        .filter(p => p.fee_type === `${initialYear} - ${watchedTerm}`)
+        .filter(p => p.fee_type.toLowerCase().includes(`${initialYear} - ${watchedTerm}`.toLowerCase()))
         .reduce((sum, p) => sum + p.amount, 0);
 
     return {
@@ -82,15 +94,15 @@ export function PaymentDialog({
       paid,
       balance: Math.max(0, total - paid)
     };
-  }, [studentRecords, payments, initialYear, watchedTerm]);
+  }, [feeStructure, payments, initialYear, watchedTerm]);
 
   useEffect(() => {
     if (open) {
       form.setValue("term_name", initialTerm);
-      // Small delay to ensure the memo logic has run for the initial term
+      // Small delay ensures the form logic registers the default term selection first
       const timer = setTimeout(() => {
         form.setValue("amount", parseFloat(termContext.balance.toFixed(2)));
-      }, 50);
+      }, 0);
       return () => clearTimeout(timer);
     }
   }, [open, initialTerm, termContext.balance, form]);
@@ -98,8 +110,7 @@ export function PaymentDialog({
   const isAmountValid = watchedAmount > 0 && watchedAmount <= (termContext.balance + 0.1);
 
   const onSubmit = async (values: z.infer<typeof paymentSchema>) => {
-    const studentRecord = studentRecords[0];
-    if (!studentRecord) return;
+    if (!masterRecord) return;
 
     setIsSubmitting(true);
     const toastId = toast.loading("Recording transaction...");
@@ -111,7 +122,7 @@ export function PaymentDialog({
         payment_method: values.payment_method,
         notes: values.notes,
         fee_type: feeType,
-        student_id: studentRecord.id,
+        student_id: masterRecord.id,
         cashier_id: cashierProfile?.id || null,
         utr_number: values.payment_method === 'upi' ? values.utr_number : null,
       };
@@ -119,15 +130,16 @@ export function PaymentDialog({
       const { data: newPayment, error } = await supabase.from("payments").insert([paymentData]).select().single();
       if (error) throw error;
 
-      await logActivity("Term Fee Collection", { 
+      await logActivity("Fee Collection", { 
         term: values.term_name, 
         amount: values.amount, 
-        academic_year: initialYear 
-      }, studentRecord.id);
+        academic_year: initialYear,
+        full_label: feeType
+      }, masterRecord.id);
 
       toast.success("Payment recorded successfully!", { id: toastId });
       onOpenChange(false);
-      onSuccess(newPayment as Payment, studentRecord);
+      onSuccess(newPayment as Payment, masterRecord);
     } catch (err: any) {
       toast.error(`Payment failed: ${err.message}`, { id: toastId });
     } finally {
@@ -138,19 +150,19 @@ export function PaymentDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>Collect Payment - {initialYear}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Collect Payment ({initialYear})</DialogTitle></DialogHeader>
         
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-2">
             
             <FormField control={form.control} name="term_name" render={({ field }) => (
               <FormItem>
-                <FormLabel>Select Term</FormLabel>
+                <FormLabel>Term</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl><SelectTrigger><SelectValue placeholder="Select term" /></SelectTrigger></FormControl>
                   <SelectContent>
-                    {FIXED_TERMS.map(t => (
-                      <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                    {availableTerms.map(term => (
+                      <SelectItem key={term} value={term}>{term}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -158,23 +170,25 @@ export function PaymentDialog({
               </FormItem>
             )} />
 
-            <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 p-3 text-sm border">
-              <div className="space-y-1">
-                <p className="text-muted-foreground text-xs uppercase font-semibold">Term Total</p>
-                <p className="font-bold">₹{termContext.total.toLocaleString()}</p>
+            <div className="grid grid-cols-2 gap-4 rounded-xl bg-muted/50 p-4 text-sm border shadow-inner">
+              <div className="space-y-0.5">
+                <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Total Fee</p>
+                <p className="font-black text-lg">₹{termContext.total.toLocaleString()}</p>
               </div>
-              <div className="space-y-1">
-                <p className="text-muted-foreground text-xs uppercase font-semibold">Remaining Balance</p>
-                <p className="font-bold text-red-600">₹{termContext.balance.toLocaleString()}</p>
+              <div className="space-y-0.5">
+                <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Remaining</p>
+                <p className={cn("font-black text-lg", termContext.balance > 0 ? "text-rose-600" : "text-emerald-600")}>
+                    ₹{termContext.balance.toLocaleString()}
+                </p>
               </div>
             </div>
 
             <FormField control={form.control} name="amount" render={({ field }) => (
               <FormItem>
-                <FormLabel className="font-bold">Amount to Pay</FormLabel>
-                <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                <FormLabel className="font-bold">Collection Amount</FormLabel>
+                <FormControl><Input type="number" step="0.01" {...field} className="h-11 text-lg font-bold" /></FormControl>
                 {watchedAmount > termContext.balance + 0.1 && (
-                  <p className="text-[0.8rem] font-medium text-destructive">Warning: Amount exceeds term balance.</p>
+                  <p className="text-[10px] font-bold text-destructive uppercase tracking-tight">Warning: Entry exceeds calculated balance.</p>
                 )}
                 <FormMessage />
               </FormItem>
@@ -198,13 +212,13 @@ export function PaymentDialog({
             </div>
 
             <FormField control={form.control} name="notes" render={({ field }) => (
-              <FormItem><FormLabel>Note (Optional)</FormLabel><FormControl><Input placeholder="Add a comment..." {...field} /></FormControl><FormMessage /></FormItem>
+              <FormItem><FormLabel>Receipt Comment (Optional)</FormLabel><FormControl><Input placeholder="Internal notes..." {...field} /></FormControl><FormMessage /></FormItem>
             )} />
 
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <DialogFooter className="pt-4 border-t">
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button type="submit" disabled={isSubmitting || !isAmountValid || (watchedMethod === 'upi' && !form.getValues('utr_number')?.trim())}>
-                {isSubmitting ? "Processing..." : "Confirm Payment"}
+                {isSubmitting ? "Processing..." : "Confirm & Print Receipt"}
               </Button>
             </DialogFooter>
           </form>
@@ -213,3 +227,5 @@ export function PaymentDialog({
     </Dialog>
   );
 }
+
+const cn = (...classes: string[]) => classes.filter(Boolean).join(' ');
