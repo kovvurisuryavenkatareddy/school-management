@@ -302,6 +302,10 @@ export default function ExpensesPage() {
     const cashPayments = paymentsData.filter(p => p.payment_method?.toLowerCase() === 'cash');
     const upiPayments = paymentsData.filter(p => p.payment_method?.toLowerCase() === 'upi');
 
+    const totalIncome = paymentsData.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalExpense = expensesData.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const netBalance = totalIncome - totalExpense;
+
     if (paymentsData.length === 0 && expensesData.length === 0) {
       toast.info("No records found in the selected date range.", { id: toastId });
       setExportDialogOpen(false);
@@ -374,7 +378,23 @@ export default function ExpensesPage() {
           ]),
           theme: 'striped',
         });
+        lastY = (doc as any).lastAutoTable.finalY;
       }
+
+      // Add Final Summary Table
+      autoTable(doc, {
+        startY: lastY + 15,
+        head: [['FINANCIAL SUMMARY']],
+        body: [
+            ['Total Income (Collections)', `Rs. ${totalIncome.toFixed(2)}`],
+            ['Total Expenditure (Expenses)', `Rs. ${totalExpense.toFixed(2)}`],
+            ['Net Period Balance', `Rs. ${netBalance.toFixed(2)}`]
+        ],
+        theme: 'grid',
+        styles: { fontStyle: 'bold', halign: 'right' },
+        headStyles: { halign: 'left', fillColor: [240, 240, 240], textColor: [0, 0, 0] },
+        columnStyles: { 0: { halign: 'left', cellWidth: 100 } }
+      });
 
       doc.save(`Financial_Report_${start}_to_${end}.pdf`);
 
@@ -402,6 +422,12 @@ export default function ExpensesPage() {
         reportRows.push(["Date", "Department", "Description", "Mode", "Cashier", "Amount"]);
         expensesData.forEach(e => reportRows.push([new Date(e.expense_date).toLocaleDateString(), e.departments?.name, e.description, e.payment_mode, e.cashiers?.name || 'Admin', e.amount]));
       }
+
+      reportRows.push([]);
+      reportRows.push(["FINAL SUMMARY"]);
+      reportRows.push(["Total Income", totalIncome.toFixed(2)]);
+      reportRows.push(["Total Expenditure", totalExpense.toFixed(2)]);
+      reportRows.push(["Net Period Balance", netBalance.toFixed(2)]);
 
       const csv = Papa.unparse(reportRows);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
