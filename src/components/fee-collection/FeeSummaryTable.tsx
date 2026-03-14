@@ -109,9 +109,21 @@ export function FeeSummaryTable({ student, payments = [], onPay, onEditConcessio
                       );
                     }
                     const metric = yearData.metrics.find(m => m.name === row.termKey);
+                    const isUnpaid = metric && metric.balance > 0;
+
                     return (
                       <TableCell key={yearData.year} className="text-center">
-                        <div className="flex flex-col items-center">
+                        <div 
+                          className={cn(
+                            "flex flex-col items-center py-1 rounded-md transition-colors",
+                            !isReadOnly && isUnpaid ? "cursor-pointer hover:bg-primary/5" : ""
+                          )}
+                          onClick={() => {
+                            if (!isReadOnly && isUnpaid) {
+                                onPay(yearData.year, metric.name);
+                            }
+                          }}
+                        >
                           <span className={cn("text-sm font-black", metric?.balance === 0 ? "text-green-600" : "text-red-500")}>
                             ₹{metric?.balance.toLocaleString()}
                           </span>
@@ -128,7 +140,7 @@ export function FeeSummaryTable({ student, payments = [], onPay, onEditConcessio
               {!isReadOnly && (
                 <TableRow className="bg-muted/10">
                   <TableCell className="pl-6 font-black text-xs uppercase tracking-tighter text-primary">
-                    Action
+                    Quick Action
                   </TableCell>
                   {tableData.map((yearData) => {
                     const firstUnpaidTerm = yearData.metrics.find(m => m.balance > 0);
@@ -141,7 +153,7 @@ export function FeeSummaryTable({ student, payments = [], onPay, onEditConcessio
                           onClick={() => firstUnpaidTerm && onPay(yearData.year, firstUnpaidTerm.name)}
                           className="h-8 min-w-[80px] text-[10px] font-black uppercase tracking-wider"
                         >
-                          {firstUnpaidTerm ? "Pay" : "Settled"}
+                          {firstUnpaidTerm ? "Pay Multiple" : "Settled"}
                         </Button>
                       </TableCell>
                     );
