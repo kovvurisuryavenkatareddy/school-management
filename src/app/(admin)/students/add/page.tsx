@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -53,9 +53,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
-import { AcademicYear, StudentDetails, StudentType, ClassGroup, StudyingYear, Term, FeeStructure, FIXED_TERMS } from "@/types";
+import { AcademicYear, StudentType, ClassGroup, StudyingYear, Term } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FeeStructureEditor } from "@/components/admin/fee-structure-editor";
 import { CreatableCombobox } from "@/components/admin/creatable-combobox";
@@ -134,8 +133,7 @@ export default function StudentsPage() {
       return;
     }
 
-    // AUTO-ASSIGN INVOICES
-    // Find unique batches that other students in this group/class have
+    // Auto-assign existing invoices from the same class/year
     const { data: existingInvoices } = await supabase
         .from('invoices')
         .select('batch_id, batch_description, total_amount, due_date, penalty_amount_per_day, students(class, studying_year, student_type_id)')
@@ -242,8 +240,8 @@ export default function StudentsPage() {
                   )} />
 
                   <FormField control={form.control} name="academic_year_id" render={({ field }) => (
-                    <FormItem><FormLabel>Academic Year</Label>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormItem><FormLabel>Academic Year</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl><SelectTrigger><SelectValue placeholder="Select year..." /></SelectTrigger></FormControl>
                         <SelectContent>{academicYears.map(ay => <SelectItem key={ay.id} value={ay.id}>{ay.year_name}</SelectItem>)}</SelectContent>
                       </Select>
@@ -294,7 +292,7 @@ function ClassCombobox({ classGroups, value, onChange, onNewGroupAdded }: any) {
     setIsAdding(true);
     const { data, error } = await supabase.from("class_groups").insert({ name: newGroupName.trim() }).select().single();
     if (error) toast.error(error.message);
-    else { toast.success("Group added!"); onNewGroupAdded(); onChange(data.name); setDialogOpen(false); }
+    else { toast.success("Group added!"); onNewGroupAdded(); onChange(data.name); setDialogOpen(false); setNewGroupName(""); }
     setIsAdding(false);
   };
 
@@ -335,7 +333,7 @@ function StudentTypeCombobox({ studentTypes, value, onChange, onNewTypeAdded }: 
     setIsAdding(true);
     const { data, error } = await supabase.from("student_types").insert({ name: newTypeName.trim() }).select().single();
     if (error) toast.error(error.message);
-    else { toast.success("Type added!"); onNewTypeAdded(); onChange(data.id); setDialogOpen(false); }
+    else { toast.success("Type added!"); onNewTypeAdded(); onChange(data.id); setDialogOpen(false); setNewTypeName(""); }
     setIsAdding(false);
   };
 
