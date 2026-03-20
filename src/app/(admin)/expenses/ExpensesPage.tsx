@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { PlusCircle, MoreHorizontal, Pencil, Trash2, Download, Loader2, FileSpreadsheet } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Pencil, Trash2, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import Papa from "papaparse";
 import jsPDF from "jspdf";
@@ -129,7 +129,6 @@ export default function ExpensesPage() {
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [selectedPaymentMode, setSelectedPaymentMode] = useState("all");
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [exportDateRange, setExportDateRange] = useState<{ start: string, end: string } | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -250,98 +249,134 @@ export default function ExpensesPage() {
   };
 
   const handleDownload = async (format: 'csv' | 'pdf') => {
-    if (!exportDateRange) return;
-    const { start, end } = exportDateRange;
-    const toastId = toast.loading("Generating receipts report...");
-
-    const { data: rawPayments, error: pErr } = await supabase.from("payments")
-      .select("created_at, amount, fee_type, notes, payment_method, students(name, roll_number, class), cashiers(name)")
-      .gte('created_at', new Date(start).toISOString())
-      .lte('created_at', new Date(end + 'T23:59:59Z').toISOString());
-
-    const { data: expensesData, error: eErr } = await supabase.from("expenses")
-      .select("expense_date, amount, description, payment_mode, departments(name), cashiers(name)")
-      .gte('expense_date', start)
-      .lte('expense_date', end);
-
-    if (pErr || eErr) {
-      toast.error("Failed to fetch data.", { id: toastId });
-      return;
+    if (!startDate || !endDate) {
+        toast.error("Please ensure date range is selected.");
+        return;
     }
 
-    const filteredPayments = selectedClasses.length > 0 
-      ? (rawPayments || []).filter((p: any) => selectedClasses.includes(p.students?.class))
-      : (rawPayments || []);
+    const toastId = toast.loading("Generating Receipts report...");
 
-    if (filteredPayments.length === 0 && (expensesData || []).length === 0) {
-      toast.info("No records found.", { id: toastId });
-      setExportDialogOpen(false);
-      return;
+    try {
+        const { data: rawPayments, error: pErr } = await supabase.from("payments")
+            .select("created_at, amount, fee_type, notes, payment_method, students(name, roll_number, class), cashiers(name)")
+            .gte('created_at', new Date(startDate).toISOString())
+            .lte('created_at', new Date(endDate + 'T23:59:59Z').toISOString());
+
+        const { data: expensesData, error: eErr } = await supabase.from("expenses")
+            .select("expense_date, amount, description, payment_mode, departments(name), cashiers(name)")
+            .gte('expense_date', startDate)
+            .lte('expense_date', endDate);
+
+        if (pErr || eErr) throw new Error("Failed to fetch transaction data.");
+
+        const filteredPayments = selectedClasses.length > 0 
+            ? (rawPayments || []).filter((p: any) => {
+                const s = Array.isArray(p.students) ? p.students[0] : p.students;
+                return selectedClasses.includes(s?.class);
+              })
+            : (rawPayments || []);
+
+        if (filteredPayments.length === 0 && (expensesData || []).length === 0) {
+            toast.info("No records found for the selected criteria.", { id: toastId });
+            setExportDialogOpen(false);
+            return;
+        }
+
+        const totalIncome = filteredPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+        const totalCash = filteredPayments.filter(p => p.payment_method?.toLowerCase() === 'cash').reduce((sum, p) => sum + p.amount, 0);
+        const totalUpi = filteredPayments.filter(p => p.payment_method?.toLowerCase() === 'upi').reduce((sum, p) => sum + p.amount, 0);
+        const totalExp = (expensesData || []).reduce((sum, e) => sum + (e.amount || 0), 0);
+
+        const formatDate = (d: string) => {
+            const dt = new Date(d);
+            return `${dt.getDate().toString().padStart(2, '0')}/${(dt.getMonth() + 1).toString().padStart(2, '0')}/${dt.getFullYear()}`;
+        };
+
+        if (format === 'pdf') {
+            const doc = new jsPDF();
+            doc.text("Receipts", 14, 15);
+            doc.setFontSize(10);
+            doc.text(`Period: ${formatDate(startDate)} to ${formatDate(endDate)}`, 14, 22);
+
+            autoTable(doc, {
+                startY: 28,
+                head: [["S.No", "Date", "Student Name", "Group", "Cash", "UPI", "Cashier"]],
+                body: filteredPayments.map((p: any, idx) => {
+                    const s = Array.isArray(p.students) ? p.students[0] : p.students;
+                    const isCash = p.payment_method?.toLowerCase() === 'cash';
+                    return [
+                        idx + 1,
+                        formatDate(p.created_at),
+                        s?.name || 'N/A',
+                        s?.class || 'N/A',
+                        isCash ? p.amount.toFixed(2) : '-',
+                        !isCash ? p.amount.toFixed(2) : '-',
+                        p.cashiers?.name || 'Admin'
+                    ];
+                }),
+                theme: 'striped',
+                headStyles: { fillColor: [63, 81, 181] }
+            });
+
+            const finalY = (doc as any).lastAutoTable.finalY || 35;
+            autoTable(doc, {
+                startY: finalY + 10,
+                head: [[{ content: 'FINANCE SUMMARY', colSpan: 2, styles: { halign: 'left', fillColor: [240, 240, 240] } }]],
+                body: [
+                    ['Total Cash Collections', `Rs. ${totalCash.toFixed(2)}`],
+                    ['Total UPI Collections', `Rs. ${totalUpi.toFixed(2)}`],
+                    ['Total Income', `Rs. ${totalIncome.toFixed(2)}`],
+                    ['Total Expenditure', `Rs. ${totalExp.toFixed(2)}`],
+                    ['Net Balance', `Rs. ${(totalIncome - totalExp).toFixed(2)}`]
+                ],
+                theme: 'grid',
+                styles: { fontStyle: 'bold' }
+            });
+
+            doc.save(`Receipts_${startDate}_to_${endDate}.pdf`);
+        } else {
+            const rows: any[] = [["Receipts Report"], [`Period: ${formatDate(startDate)} to ${formatDate(endDate)}`], [], ["S.No", "Date", "Student Name", "Group", "Cash", "UPI", "Cashier"]];
+            filteredPayments.forEach((p: any, idx) => {
+                const s = Array.isArray(p.students) ? p.students[0] : p.students;
+                const isCash = p.payment_method?.toLowerCase() === 'cash';
+                rows.push([
+                    idx + 1, 
+                    formatDate(p.created_at), 
+                    s?.name || 'N/A', 
+                    s?.class || 'N/A', 
+                    isCash ? p.amount : '-', 
+                    !isCash ? p.amount : '-', 
+                    p.cashiers?.name || 'Admin'
+                ]);
+            });
+            rows.push([], ["SUMMARY"], ["Total Cash Collections", totalCash], ["Total UPI Collections", totalUpi], ["Total Income", totalIncome], ["Total Expenditure", totalExp], ["Net Balance", totalIncome - totalExp]);
+            const csv = Papa.unparse(rows);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `Receipts_${startDate}_to_${endDate}.csv`;
+            link.click();
+        }
+        toast.success("Report downloaded successfully!", { id: toastId });
+    } catch (error: any) {
+        toast.error(error.message, { id: toastId });
+    } finally {
+        setExportDialogOpen(false);
     }
+  };
 
-    const totalIncome = filteredPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const totalCash = filteredPayments.filter(p => p.payment_method?.toLowerCase() === 'cash').reduce((sum, p) => sum + p.amount, 0);
-    const totalUpi = filteredPayments.filter(p => p.payment_method?.toLowerCase() === 'upi').reduce((sum, p) => sum + p.amount, 0);
-    const totalExp = (expensesData || []).reduce((sum, e) => sum + (e.amount || 0), 0);
-
-    const formatDate = (d: string) => {
-      const dt = new Date(d);
-      return `${dt.getDate().toString().padStart(2, '0')}/${(dt.getMonth() + 1).toString().padStart(2, '0')}/${dt.getFullYear()}`;
-    };
-
-    if (format === 'pdf') {
-      const doc = new jsPDF();
-      doc.text("Receipts", 14, 15);
-      doc.setFontSize(10);
-      doc.text(`Period: ${formatDate(start)} to ${formatDate(end)}`, 14, 22);
-
-      autoTable(doc, {
-        startY: 28,
-        head: [["S.No", "Date", "Student Name", "Group", "Cash", "UPI", "Cashier"]],
-        body: filteredPayments.map((p: any, idx) => [
-          idx + 1,
-          formatDate(p.created_at),
-          p.students?.name || 'N/A',
-          p.students?.class || 'N/A',
-          p.payment_method?.toLowerCase() === 'cash' ? p.amount.toFixed(2) : '-',
-          p.payment_method?.toLowerCase() === 'upi' ? p.amount.toFixed(2) : '-',
-          p.cashiers?.name || 'Admin'
-        ]),
-        theme: 'striped',
-        headStyles: { fillColor: [63, 81, 181] }
-      });
-
-      const finalY = (doc as any).lastAutoTable.finalY || 35;
-      autoTable(doc, {
-        startY: finalY + 10,
-        head: [[{ content: 'FINANCE SUMMARY', colSpan: 2, styles: { halign: 'left', fillColor: [240, 240, 240] } }]],
-        body: [
-          ['Total Cash', `Rs. ${totalCash.toFixed(2)}`],
-          ['Total UPI', `Rs. ${totalUpi.toFixed(2)}`],
-          ['Total Income', `Rs. ${totalIncome.toFixed(2)}`],
-          ['Total Expenditure', `Rs. ${totalExp.toFixed(2)}`],
-          ['Net Balance', `Rs. ${(totalIncome - totalExp).toFixed(2)}`]
-        ],
-        theme: 'grid',
-        styles: { fontStyle: 'bold' }
-      });
-
-      doc.save(`Receipts_${start}_to_${end}.pdf`);
+  const handleOpenExport = (todayOnly: boolean = false) => {
+    if (todayOnly) {
+        const today = new Date().toISOString().split('T')[0];
+        setStartDate(today);
+        setEndDate(today);
     } else {
-      const rows: any[] = [["Receipts Report"], [`Period: ${formatDate(start)} to ${formatDate(end)}`], [], ["S.No", "Date", "Student Name", "Group", "Cash", "UPI", "Cashier"]];
-      filteredPayments.forEach((p: any, idx) => {
-        rows.push([idx + 1, formatDate(p.created_at), p.students?.name, p.students?.class, p.payment_method?.toLowerCase() === 'cash' ? p.amount : '-', p.payment_method?.toLowerCase() === 'upi' ? p.amount : '-', p.cashiers?.name || 'Admin']);
-      });
-      rows.push([], ["SUMMARY"], ["Total Cash", totalCash], ["Total UPI", totalUpi], ["Total Income", totalIncome], ["Total Expenditure", totalExp], ["Net Balance", totalIncome - totalExp]);
-      const csv = Papa.unparse(rows);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `Receipts_${start}_to_${end}.csv`;
-      link.click();
+        if (!startDate || !endDate) {
+            toast.error("Please select a date range first.");
+            return;
+        }
     }
-    toast.success("Report ready!", { id: toastId });
-    setExportDialogOpen(false);
+    setExportDialogOpen(true);
   };
 
   useEffect(() => {
@@ -379,10 +414,10 @@ export default function ExpensesPage() {
             <div className="space-y-1.5"><Label>From</Label><Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div>
             <div className="space-y-1.5"><Label>To</Label><Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></div>
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1 gap-1" onClick={() => startDate && endDate ? setExportDialogOpen(true) : toast.error("Select dates")}>
+              <Button variant="outline" className="flex-1 gap-1" onClick={() => handleOpenExport(false)}>
                 <Download className="h-3.5 w-3.5" /> Report
               </Button>
-              <Button variant="outline" className="flex-1" onClick={() => { const t = new Date().toISOString().split('T')[0]; setExportDateRange({ start: t, end: t }); setExportDialogOpen(true); }}>Today</Button>
+              <Button variant="outline" className="flex-1" onClick={() => handleOpenExport(true)}>Today</Button>
             </div>
           </div>
         </CardHeader>
@@ -411,8 +446,10 @@ export default function ExpensesPage() {
         </CardContent>
       </Card>
       <AlertDialog open={deleteAlertOpen} onOpenChange={setDeleteAlertOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the expense record.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-destructive">Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Export Receipts</DialogTitle><DialogDescription>Format: Indian Date, Group breakdown.</DialogDescription></DialogHeader>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Export Receipts</DialogTitle><DialogDescription>Format: Indian Date, Group breakdown.</DialogDescription></DialogHeader>
           <DialogFooter className="sm:justify-center">
             <Button onClick={() => handleDownload('csv')}>Excel (CSV)</Button>
             <Button onClick={() => handleDownload('pdf')} variant="secondary">PDF Report</Button>
