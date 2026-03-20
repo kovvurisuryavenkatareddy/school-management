@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Search, Loader2, UserPlus, Check, FilterX } from "lucide-react";
+import { ArrowLeft, Trash2, Search, Loader2, UserPlus, Check, FilterX, Users } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -155,14 +155,11 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
     setDeleteId(null);
   };
 
-  const handleAddStudent = async (studentId: string) => {
+  const handleAddStudent = async (studentId: string, silent: boolean = false) => {
     if (invoices.some(inv => inv.students.id === studentId)) {
-        toast.error("Student is already in this batch.");
-        return;
+        if (!silent) toast.error("Student is already in this batch.");
+        return null;
     }
-
-    setIsProvisioning(true);
-    const toastId = toast.loading("Provisioning fee to student...");
 
     try {
         const { data: newInvoice, error } = await supabase.from('invoices').insert({
@@ -184,13 +181,37 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
             amount: batchInfo.amount
         });
 
-        toast.success("Student added successfully!", { id: toastId });
-        setInvoices(prev => [...prev, newInvoice as any]);
+        return newInvoice as StudentInvoice;
     } catch (err: any) {
-        toast.error(`Provisioning failed: ${err.message}`, { id: toastId });
-    } finally {
-        setIsProvisioning(false);
+        if (!silent) toast.error(`Provisioning failed: ${err.message}`);
+        return null;
     }
+  };
+
+  const handleBulkAdd = async () => {
+    const toAdd = searchedStudents.filter(s => !invoices.some(inv => inv.students.id === s.id));
+    if (toAdd.length === 0) {
+        toast.info("No new students to add based on current filters.");
+        return;
+    }
+
+    setIsProvisioning(true);
+    const toastId = toast.loading(`Provisioning fee to ${toAdd.length} students...`);
+    
+    let successCount = 0;
+    const results = [];
+
+    for (const student of toAdd) {
+        const res = await handleAddStudent(student.id, true);
+        if (res) {
+            successCount++;
+            results.push(res);
+        }
+    }
+
+    setInvoices(prev => [...prev, ...results]);
+    toast.success(`Successfully assigned fee to ${successCount} students!`, { id: toastId });
+    setIsProvisioning(false);
   };
 
   const filteredInvoices = invoices.filter(
@@ -209,7 +230,7 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
       const matchesType = filterType === 'all' || s.student_type_id === filterType;
 
       return matchesSearch && matchesClass && matchesSY && matchesSection && matchesType;
-    }).slice(0, 50);
+    });
   }, [allStudents, dialogSearch, filterClass, filterSY, filterSection, filterType]);
 
   const resetDialogFilters = () => {
@@ -329,8 +350,17 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
       <Dialog open={addStudentDialogOpen} onOpenChange={setAddStudentDialogOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
             <DialogHeader>
-                <DialogTitle>Assign Fee to Student</DialogTitle>
-                <DialogDescription>Filter and select students to add to this invoice batch.</DialogDescription>
+                <div className="flex items-center justify-between pr-8">
+                    <div>
+                        <DialogTitle>Assign Fee to Student</DialogTitle>
+                        <DialogDescription>Filter and select students to add to this invoice batch.</DialogDescription>
+                    </div>
+                    {searchedStudents.length > 0 && (
+                        <Button size="sm" onClick={handleBulkAdd} disabled={isProvisioning} className="gap-2">
+                            <Users className="h-4 w-4" /> Provision All Matched
+                        </Button>
+                    )}
+                </div>
             </DialogHeader>
             
             <div className="space-y-4 py-4">
@@ -403,7 +433,7 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
                 <ScrollArea className="h-72 border rounded-xl bg-muted/20">
                     {searchedStudents.length > 0 ? (
                         <div className="divide-y">
-                            {searchedStudents.map(student => {
+                            {searchedStudents.slice(0, 100).map(student => {
                                 const isAlreadyIn = invoices.some(inv => inv.students.id === student.id);
                                 return (
                                     <div key={student.id} className="flex items-center justify-between p-3 hover:bg-background transition-colors">

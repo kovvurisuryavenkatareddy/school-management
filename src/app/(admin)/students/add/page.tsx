@@ -123,52 +123,17 @@ export default function StudentsPage() {
 
   const onStudentSubmit = async (values: z.infer<typeof studentFormSchema>) => {
     setIsSubmitting(true);
-    const toastId = toast.loading("Adding student and assigning fees...");
+    const toastId = toast.loading("Adding student...");
     
-    const { data: student, error } = await supabase.from("students").insert([values]).select().single();
+    const { error } = await supabase.from("students").insert([values]).select().single();
     
     if (error) {
-      toast.error(`Failed: ${error.message}`, { id: toastId });
-      setIsSubmitting(false);
-      return;
-    }
-
-    // Auto-assign existing invoices from the same class/year
-    const { data: existingInvoices } = await supabase
-        .from('invoices')
-        .select('batch_id, batch_description, total_amount, due_date, penalty_amount_per_day, students(class, studying_year, student_type_id)')
-        .limit(100);
-
-    const batchesToClone = new Map();
-    existingInvoices?.forEach(inv => {
-        const s = inv.students as any;
-        if (s?.class === values.class && s?.studying_year === values.studying_year && s?.student_type_id === values.student_type_id) {
-            if (!batchesToClone.has(inv.batch_id)) {
-                batchesToClone.set(inv.batch_id, inv);
-            }
-        }
-    });
-
-    if (batchesToClone.size > 0) {
-        const invoicesToInsert = Array.from(batchesToClone.values()).map(batch => ({
-            student_id: student.id,
-            batch_id: batch.batch_id,
-            batch_description: batch.batch_description,
-            total_amount: batch.total_amount,
-            due_date: batch.due_date,
-            penalty_amount_per_day: batch.penalty_amount_per_day,
-            status: 'unpaid',
-            paid_amount: 0
-        }));
-
-        await supabase.from('invoices').insert(invoicesToInsert);
-        toast.success(`Student added and ${invoicesToInsert.length} pending invoices assigned!`, { id: toastId });
+      toast.error(`Failed to add student: ${error.message}`, { id: toastId });
     } else {
-        toast.success("Student added successfully!", { id: toastId });
+      toast.success("Student added successfully! You can now assign fees manually from the Invoices section.", { id: toastId });
+      form.reset();
+      fetchData();
     }
-
-    form.reset();
-    fetchData();
     setIsSubmitting(false);
   };
 
@@ -183,7 +148,7 @@ export default function StudentsPage() {
           </Button>
           <div>
             <CardTitle>Add Student</CardTitle>
-            <CardDescription>Fees from existing batches will be assigned automatically.</CardDescription>
+            <CardDescription>Fill in student details. Fees can be assigned manually after creation.</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -204,7 +169,7 @@ export default function StudentsPage() {
                     <FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="phone" render={({ field }) => (
-                    <FormItem><FormLabel>Mobile</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Mobile</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormMessage></FormItem>
                   )} />
                   
                   <FormField control={form.control} name="class" render={({ field }) => (
