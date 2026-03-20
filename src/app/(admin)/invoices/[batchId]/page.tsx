@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Search, Loader2, UserPlus, Check, FilterX, Users, FileSpreadsheet, Download } from "lucide-react";
+import { ArrowLeft, Trash2, Search, Loader2, UserPlus, Check, FilterX, Users, FileSpreadsheet, Download, PieChart } from "lucide-react";
 import Papa from "papaparse";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -57,6 +57,8 @@ import { Label } from "@/components/ui/label";
 type StudentInvoice = {
   id: string;
   status: "paid" | "unpaid";
+  paid_amount: number;
+  total_amount: number;
   students: {
     id: string;
     roll_number: string;
@@ -72,20 +74,17 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
   const [searchTerm, setSearchTerm] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   
-  // Dialog state
   const [addStudentDialogOpen, setAddStudentDialogOpen] = useState(false);
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  // Dialog filters
   const [dialogSearch, setDialogSearch] = useState("");
   const [filterClass, setFilterClass] = useState("all");
   const [filterSY, setFilterSY] = useState("all");
   const [filterSection, setFilterSection] = useState("all");
   const [filterType, setFilterType] = useState("all");
 
-  // Options for filters
   const [options, setOptions] = useState<{
     classes: any[];
     years: any[];
@@ -97,7 +96,7 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
     setIsLoading(true);
     const { data, error } = await supabase
       .from("invoices")
-      .select("id, status, batch_description, total_amount, due_date, penalty_amount_per_day, students(id, roll_number, name)")
+      .select("id, status, paid_amount, total_amount, batch_description, due_date, penalty_amount_per_day, students(id, roll_number, name)")
       .eq("batch_id", batchId);
 
     if (error) {
@@ -106,6 +105,8 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
       const normalized: StudentInvoice[] = (data || []).map((row: any) => ({
         id: row.id,
         status: row.status,
+        paid_amount: row.paid_amount || 0,
+        total_amount: row.total_amount || 0,
         students: row.students
           ? { id: row.students.id, roll_number: row.students.roll_number, name: row.students.name }
           : { id: "N/A", roll_number: "N/A", name: "Student not found" },
@@ -154,14 +155,11 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
             toast.error("Error loading complete student list.");
             break;
         }
-
         if (!data || data.length === 0) break;
-        
         fetchedStudents = [...fetchedStudents, ...data];
         if (data.length < CHUNK_SIZE) break;
         page++;
     }
-    
     setAllStudents(fetchedStudents);
   };
 
@@ -169,6 +167,100 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
     fetchBatchDetails();
     fetchLookupData();
   }, [batchId]);
+
+  const stats = useMemo(() => {
+    const total = invoices.length;
+    const paid = invoices.filter(i => i.status === 'paid').length;
+    const partial = invoices.filter(i => i.status === 'unpaid' && i.paid_amount > 0).length;
+    const unpaid = invoices.filter(i => i.status === 'unpaid' && i.paid_amount === 0).length;
+    const totalCollected = invoices.reduce((sum, i) => sum + i.paid_amount, 0);
+
+    return { total, paid, partial, unpaid, totalCollected };
+  }, [invoices]);
+
+  const getRowStatus = (invoice: StudentInvoice) => {
+    if (invoice.status === 'paid') return 'Paid';
+    if (invoice.paid_amount > 0) return 'Partial';
+    return 'Unpaid';
+  };
+
+  const handleExport = (format: 'csv' | 'pdf') => {
+    if (invoices.length === 0) {
+        toast.info("No data to export.");
+        return;
+    }
+
+    const dataToExport = invoices.map(inv => ({
+        "Roll Number": inv.students.roll_number,
+        "Student Name": inv.students.name,
+        "Status": getRowStatus(inv),
+        "Total Amount": inv.total_amount,
+        "Paid Amount": inv.paid_amount,
+        "Balance": inv.total_amount - inv.paid_amount,
+        "Due Date": batchInfo?.due_date || ""
+    }));
+
+    if (format === 'pdf') {
+        const doc = new jsPDF();
+        doc.setFontSize(16);
+        doc.text(`Fee Batch Report: ${batchInfo?.description || 'Batch Details'}`, 14, 15);
+        
+        doc.setFontSize(10);
+        doc.text(`Total Students: ${stats.total}`, 14, 22);
+        doc.text(`Paid: ${stats.paid} | Partial: ${stats.partial} | Unpaid: ${stats.unpaid}`, 14, 27);
+        doc.text(`Total Collected: Rs. ${stats.totalCollected.toLocaleString()}`, 14, 32);
+
+        autoTable(doc, {
+            startY: 38,
+            head: [["Roll No", "Student Name", "Status", "Total", "Paid", "Balance"]],
+            body: dataToExport.map(row => [
+                row["Roll Number"], 
+                row["Student Name"], 
+                row["Status"], 
+                row["Total Amount"],
+                row["Paid Amount"],
+                row["Balance"]
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [51, 122, 183] }
+        });
+        doc.save(`Batch_Report_${batchId}.pdf`);
+    } else {
+        const rows: any[] = [];
+        rows.push(["FEE BATCH REPORT: " + batchInfo?.description]);
+        rows.push(["Generated on: " + new Date().toLocaleDateString()]);
+        rows.push([]);
+        rows.push(["SUMMARY"]);
+        rows.push(["Status", "Count"]);
+        rows.push(["Total Students", stats.total]);
+        rows.push(["Paid", stats.paid]);
+        rows.push(["Partially Paid", stats.partial]);
+        rows.push(["Unpaid", stats.unpaid]);
+        rows.push(["Total Collected", stats.totalCollected]);
+        rows.push([]);
+        rows.push(["Roll Number", "Student Name", "Status", "Total Amount", "Paid Amount", "Balance", "Due Date"]);
+        
+        dataToExport.forEach(row => {
+            rows.push([
+                row["Roll Number"], 
+                row["Student Name"], 
+                row["Status"], 
+                row["Total Amount"], 
+                row["Paid Amount"], 
+                row["Balance"], 
+                row["Due Date"]
+            ]);
+        });
+
+        const csv = Papa.unparse(rows);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `Batch_Export_${batchId}.csv`;
+        link.click();
+    }
+    toast.success("Detailed report exported successfully!");
+  };
 
   const handleDeleteInvoice = async () => {
     if (!deleteId) return;
@@ -182,48 +274,13 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
     setDeleteId(null);
   };
 
-  const handleExport = (format: 'csv' | 'pdf') => {
-    if (invoices.length === 0) {
-        toast.info("No data to export.");
-        return;
-    }
-
-    const dataToExport = invoices.map(inv => ({
-        "Roll Number": inv.students.roll_number,
-        "Student Name": inv.students.name,
-        "Status": inv.status.toUpperCase(),
-        "Amount": batchInfo?.amount || 0,
-        "Due Date": batchInfo?.due_date || ""
-    }));
-
-    if (format === 'pdf') {
-        const doc = new jsPDF();
-        doc.text(`Invoice Batch: ${batchInfo?.description || 'Batch Details'}`, 14, 15);
-        autoTable(doc, {
-            startY: 25,
-            head: [["Roll Number", "Student Name", "Status", "Amount"]],
-            body: dataToExport.map(row => [row["Roll Number"], row["Student Name"], row["Status"], row["Amount"]])
-        });
-        doc.save(`Batch_${batchId}.pdf`);
-    } else {
-        const csv = Papa.unparse(dataToExport);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `Batch_${batchId}.csv`;
-        link.click();
-    }
-    toast.success("Batch records exported successfully!");
-  };
-
   const handleAddStudent = async (studentId: string, silent: boolean = false) => {
     if (invoices.some(inv => inv.students.id === studentId)) {
         if (!silent) toast.error("Student is already in this batch.");
         return null;
     }
-
     if (!batchInfo) {
-        if (!silent) toast.error("Batch information not fully loaded. Please try again.");
+        if (!silent) toast.error("Batch info loading...");
         return null;
     }
 
@@ -239,7 +296,7 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
             penalty_amount_per_day: batchInfo.penalty,
             status: 'unpaid',
             paid_amount: 0
-        }).select('id, status, students(id, roll_number, name)').single();
+        }).select('id, status, paid_amount, total_amount, students(id, roll_number, name)').single();
 
         if (error) throw error;
 
@@ -250,16 +307,13 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
         });
 
         const normalizedInvoice = newInvoice as StudentInvoice;
-        
-        // Update local state if this is a single addition
         if (!silent) {
             setInvoices(prev => [...prev, normalizedInvoice]);
             toast.success("Student added successfully!");
         }
-
         return normalizedInvoice;
     } catch (err: any) {
-        if (!silent) toast.error(`Provisioning failed: ${err.message}`);
+        if (!silent) toast.error(`Error: ${err.message}`);
         return null;
     } finally {
         if (!silent) setProcessingId(null);
@@ -269,17 +323,15 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
   const handleBulkAdd = async () => {
     const toAdd = searchedStudents.filter(s => !invoices.some(inv => inv.students.id === s.id));
     if (toAdd.length === 0) {
-        toast.info("No new students to add based on current filters.");
+        toast.info("No new students to add.");
         return;
     }
 
     setIsProvisioning(true);
-    const toastId = toast.loading(`Provisioning fee to ${toAdd.length} students...`);
-    
+    const toastId = toast.loading(`Assigning fee to ${toAdd.length} students...`);
     let successCount = 0;
     const newInvoices: StudentInvoice[] = [];
 
-    // Process in sequential order to avoid hitting rate limits too hard
     for (const student of toAdd) {
         const res = await handleAddStudent(student.id, true);
         if (res) {
@@ -290,11 +342,8 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
 
     if (successCount > 0) {
         setInvoices(prev => [...prev, ...newInvoices]);
-        toast.success(`Successfully assigned fee to ${successCount} students!`, { id: toastId });
-    } else {
-        toast.error("Bulk provisioning failed or no students were added.", { id: toastId });
+        toast.success(`Provisioned ${successCount} students!`, { id: toastId });
     }
-    
     setIsProvisioning(false);
   };
 
@@ -312,45 +361,42 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
       const matchesSY = filterSY === 'all' || s.studying_year === filterSY;
       const matchesSection = filterSection === 'all' || s.section === filterSection;
       const matchesType = filterType === 'all' || s.student_type_id === filterType;
-
       return matchesSearch && matchesClass && matchesSY && matchesSection && matchesType;
     });
   }, [allStudents, dialogSearch, filterClass, filterSY, filterSection, filterType]);
 
   const resetDialogFilters = () => {
-    setDialogSearch("");
-    setFilterClass("all");
-    setFilterSY("all");
-    setFilterSection("all");
-    setFilterType("all");
+    setDialogSearch(""); setFilterClass("all"); setFilterSY("all"); setFilterSection("all"); setFilterType("all");
   };
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div className="flex items-center gap-4">
                 <Button variant="outline" size="icon" asChild>
-                <Link href="/billing">
-                    <ArrowLeft className="h-4 w-4" />
-                </Link>
+                    <Link href="/billing"><ArrowLeft className="h-4 w-4" /></Link>
                 </Button>
                 <div>
-                <CardTitle>{batchInfo?.description || "Loading Batch..."}</CardTitle>
-                <CardDescription>
-                    {invoices.length} total students assigned to this fee batch.
-                </CardDescription>
+                    <CardTitle className="text-2xl font-ubuntu">{batchInfo?.description || "Loading..."}</CardTitle>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
+                        <span className="text-xs font-bold text-muted-foreground uppercase">Batch Performance:</span>
+                        <Badge variant="outline" className="text-[10px] font-black border-emerald-200 text-emerald-700 bg-emerald-50">PAID: {stats.paid}</Badge>
+                        <Badge variant="outline" className="text-[10px] font-black border-amber-200 text-amber-700 bg-amber-50">PARTIAL: {stats.partial}</Badge>
+                        <Badge variant="outline" className="text-[10px] font-black border-rose-200 text-rose-700 bg-rose-50">UNPAID: {stats.unpaid}</Badge>
+                        <span className="text-[10px] font-bold text-primary bg-primary/5 px-2 py-0.5 rounded-full border border-primary/10">Total: {stats.total}</span>
+                    </div>
                 </div>
             </div>
             <div className="flex items-center flex-wrap gap-2">
-                <Button variant="outline" size="sm" onClick={() => handleExport('csv')} className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
-                    <FileSpreadsheet className="h-4 w-4" /> Export Excel
+                <Button variant="outline" size="sm" onClick={() => handleExport('csv')} className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-9 font-bold">
+                    <FileSpreadsheet className="h-4 w-4" /> Excel
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => handleExport('pdf')} className="gap-2">
-                    <Download className="h-4 w-4" /> Export PDF
+                <Button variant="outline" size="sm" onClick={() => handleExport('pdf')} className="gap-2 h-9 font-bold">
+                    <Download className="h-4 w-4" /> PDF
                 </Button>
-                <Button onClick={() => setAddStudentDialogOpen(true)} className="gap-2">
+                <Button onClick={() => setAddStudentDialogOpen(true)} className="gap-2 h-9 font-bold">
                     <UserPlus className="h-4 w-4" /> Add Student
                 </Button>
             </div>
@@ -359,62 +405,54 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
         <CardContent>
           <div className="mb-6 relative max-w-sm">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Filter list by name or roll..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-            />
+            <Input placeholder="Filter list by name or roll..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9" />
           </div>
-          <div className="rounded-md border overflow-hidden">
+          <div className="rounded-md border overflow-hidden shadow-sm">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead>Roll Number</TableHead>
                   <TableHead>Student Name</TableHead>
+                  <TableHead className="text-right">Collection</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-10">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
-                    </TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-10"><Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" /></TableCell></TableRow>
                 ) : filteredInvoices.length > 0 ? (
-                  filteredInvoices.map((invoice) => (
-                    <TableRow key={invoice.id}>
-                      <TableCell className="font-mono text-xs">{invoice.students.roll_number}</TableCell>
-                      <TableCell className="font-medium text-sm">
-                        {invoice.students.name}
-                      </TableCell>
-                      <TableCell>
-                        {invoice.status === "paid" ? (
-                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">Paid</Badge>
-                        ) : (
-                          <Badge variant="destructive" className="bg-rose-100 text-rose-800 border-rose-200">Unpaid</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-                          onClick={() => setDeleteId(invoice.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  filteredInvoices.map((invoice) => {
+                    const status = getRowStatus(invoice);
+                    return (
+                        <TableRow key={invoice.id}>
+                        <TableCell className="font-mono text-xs">{invoice.students.roll_number}</TableCell>
+                        <TableCell className="font-medium text-sm">{invoice.students.name}</TableCell>
+                        <TableCell className="text-right">
+                            <div className="flex flex-col items-end">
+                                <span className="text-xs font-black">₹{invoice.paid_amount.toLocaleString()}</span>
+                                <span className="text-[9px] text-muted-foreground uppercase">of ₹{invoice.total_amount.toLocaleString()}</span>
+                            </div>
+                        </TableCell>
+                        <TableCell>
+                            {status === 'Paid' ? (
+                                <Badge className="bg-emerald-500 text-white border-0 text-[10px]">PAID</Badge>
+                            ) : status === 'Partial' ? (
+                                <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50 text-[10px]">PARTIAL</Badge>
+                            ) : (
+                                <Badge variant="destructive" className="text-[10px]">UNPAID</Badge>
+                            )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-rose-600 hover:bg-rose-50" onClick={() => setDeleteId(invoice.id)}>
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </TableCell>
+                        </TableRow>
+                    );
+                  })
                 ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-10 text-muted-foreground italic">
-                      No matching students found in this batch.
-                    </TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground italic">No students matched.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -422,113 +460,68 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
         </CardContent>
       </Card>
 
+      {/* Delete Confirmation */}
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove Student from Batch?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will delete this specific invoice record. This action is permanent.
-            </AlertDialogDescription>
+            <AlertDialogTitle>Remove Student?</AlertDialogTitle>
+            <AlertDialogDescription>This will delete the invoice record for this student from the batch.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteInvoice} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Confirm Removal
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleDeleteInvoice} className="bg-destructive hover:bg-destructive/90">Confirm Removal</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Add Student Dialog */}
       <Dialog open={addStudentDialogOpen} onOpenChange={setAddStudentDialogOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
             <DialogHeader>
                 <div className="flex items-center justify-between pr-8">
                     <div>
                         <DialogTitle>Assign Fee to Student</DialogTitle>
-                        <DialogDescription>Filter and select students to add to this invoice batch.</DialogDescription>
+                        <DialogDescription>Filter and select students to add to this batch.</DialogDescription>
                     </div>
                     {searchedStudents.length > 0 && (
-                        <Button size="sm" onClick={handleBulkAdd} disabled={isProvisioning} className="gap-2">
-                            <Users className="h-4 w-4" /> Provision All Matched
+                        <Button size="sm" onClick={handleBulkAdd} disabled={isProvisioning} className="gap-2 font-bold">
+                            <Users className="h-4 w-4" /> Provision Matched
                         </Button>
                     )}
                 </div>
             </DialogHeader>
             
-            <div className="space-y-4 py-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="space-y-4 py-4 overflow-hidden flex flex-col flex-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
                     <div className="col-span-full relative">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                            placeholder="Search name or roll number..." 
-                            className="pl-9 h-9"
-                            value={dialogSearch}
-                            onChange={(e) => setDialogSearch(e.target.value)}
-                        />
+                        <Input placeholder="Search name or roll..." className="pl-9 h-9" value={dialogSearch} onChange={(e) => setDialogSearch(e.target.value)} />
                     </div>
-                    
-                    <div className="space-y-1.5">
-                        <Label className="text-[10px] font-bold uppercase text-muted-foreground">Class</Label>
-                        <Select value={filterClass} onValueChange={setFilterClass}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Classes</SelectItem>
-                                {options.classes.map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <Label className="text-[10px] font-bold uppercase text-muted-foreground">Studying Year</Label>
-                        <Select value={filterSY} onValueChange={setFilterSY}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Years</SelectItem>
-                                {options.years.map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <Label className="text-[10px] font-bold uppercase text-muted-foreground">Section</Label>
-                        <Select value={filterSection} onValueChange={setFilterSection}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Sections</SelectItem>
-                                {options.sections.map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <Label className="text-[10px] font-bold uppercase text-muted-foreground">Student Type</Label>
-                        <Select value={filterType} onValueChange={setFilterType}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Types</SelectItem>
-                                {options.types.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    
-                    <div className="flex items-end">
-                        <Button variant="ghost" size="sm" onClick={resetDialogFilters} className="h-8 text-[10px] uppercase font-bold gap-1">
-                            <FilterX className="h-3 w-3" /> Clear Filters
-                        </Button>
-                    </div>
+                    <Select value={filterClass} onValueChange={setFilterClass}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Class" /></SelectTrigger>
+                        <SelectContent><SelectItem value="all">All Classes</SelectItem>{options.classes.map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={filterSY} onValueChange={setFilterSY}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Year" /></SelectTrigger>
+                        <SelectContent><SelectItem value="all">All Years</SelectItem>{options.years.map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={filterSection} onValueChange={setFilterSection}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sec" /></SelectTrigger>
+                        <SelectContent><SelectItem value="all">All Sections</SelectItem>{options.sections.map(o => <SelectItem key={o.id} value={o.name}>{o.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Button variant="ghost" size="sm" onClick={resetDialogFilters} className="h-8 text-[10px] uppercase font-bold gap-1"><FilterX className="h-3 w-3" /> Clear</Button>
                 </div>
 
-                <div className="flex items-center justify-between px-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Matched: {searchedStudents.length}</span>
+                <div className="flex items-center justify-between px-1 shrink-0">
+                    <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Available Students: {searchedStudents.length}</span>
                 </div>
 
-                <ScrollArea className="h-72 border rounded-xl bg-muted/20">
+                <ScrollArea className="flex-1 border rounded-xl bg-muted/20">
                     {searchedStudents.length > 0 ? (
                         <div className="divide-y">
-                            {searchedStudents.slice(0, 250).map(student => {
+                            {searchedStudents.slice(0, 100).map(student => {
                                 const isAlreadyIn = invoices.some(inv => inv.students.id === student.id);
                                 const isProcessing = processingId === student.id;
-
                                 return (
                                     <div key={student.id} className="flex items-center justify-between p-3 hover:bg-background transition-colors">
                                         <div className="flex flex-col">
@@ -537,22 +530,13 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
                                                 <span>Roll: {student.roll_number}</span>
                                                 <span>•</span>
                                                 <span>{student.class}-{student.section}</span>
-                                                <span>•</span>
-                                                <span>{student.studying_year}</span>
                                             </div>
                                         </div>
                                         {isAlreadyIn ? (
-                                            <Badge variant="secondary" className="gap-1 h-6 text-[9px] bg-emerald-50 text-emerald-700 border-emerald-100">
-                                                <Check className="h-2 w-2" /> Assigned
-                                            </Badge>
+                                            <Badge variant="secondary" className="gap-1 h-6 text-[9px] bg-emerald-50 text-emerald-700 border-emerald-100"><Check className="h-2 w-2" /> Assigned</Badge>
                                         ) : (
-                                            <Button 
-                                                size="sm" 
-                                                className="h-8 font-black text-[10px] uppercase px-4"
-                                                onClick={() => handleAddStudent(student.id)}
-                                                disabled={isProvisioning || isProcessing}
-                                            >
-                                                {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add Student"}
+                                            <Button size="sm" className="h-7 font-black text-[9px] uppercase px-3" onClick={() => handleAddStudent(student.id)} disabled={isProvisioning || isProcessing}>
+                                                {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}
                                             </Button>
                                         )}
                                     </div>
@@ -560,10 +544,7 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
                             })}
                         </div>
                     ) : (
-                        <div className="p-12 text-center text-sm text-muted-foreground italic flex flex-col items-center gap-2">
-                            <FilterX className="h-8 w-8 opacity-20" />
-                            <p>No matching students found with current filters.</p>
-                        </div>
+                        <div className="p-12 text-center text-sm text-muted-foreground flex flex-col items-center gap-2"><FilterX className="h-8 w-8 opacity-20" /><p>No students found.</p></div>
                     )}
                 </ScrollArea>
             </div>
