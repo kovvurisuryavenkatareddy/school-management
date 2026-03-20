@@ -86,8 +86,17 @@ export default function StudentsPage() {
   const form = useForm<z.infer<typeof studentFormSchema>>({
     resolver: zodResolver(studentFormSchema),
     defaultValues: {
-      roll_number: "", name: "", class: "", section: "", email: "", phone: "",
-      student_type_id: "", academic_year_id: "", studying_year: "", caste: "", fee_details: {},
+      roll_number: "",
+      name: "",
+      class: "",
+      section: "",
+      email: "",
+      phone: "",
+      student_type_id: "",
+      academic_year_id: "",
+      studying_year: "",
+      caste: "",
+      fee_details: {},
     },
   });
 
@@ -169,7 +178,7 @@ export default function StudentsPage() {
                     <FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="phone" render={({ field }) => (
-                    <FormItem><FormLabel>Mobile</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormMessage></FormItem>
+                    <FormItem><FormLabel>Mobile</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
                   
                   <FormField control={form.control} name="class" render={({ field }) => (
@@ -246,7 +255,7 @@ export default function StudentsPage() {
   );
 }
 
-function ClassCombobox({ classGroups, value, onChange, onNewGroupAdded }: any) {
+function ClassCombobox({ classGroups, value, onChange, onNewGroupAdded }: { classGroups: ClassGroup[], value: string, onChange: (val: string) => void, onNewGroupAdded: () => void }) {
   const [open, setOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -256,38 +265,64 @@ function ClassCombobox({ classGroups, value, onChange, onNewGroupAdded }: any) {
     if (!newGroupName.trim()) return;
     setIsAdding(true);
     const { data, error } = await supabase.from("class_groups").insert({ name: newGroupName.trim() }).select().single();
-    if (error) toast.error(error.message);
-    else { toast.success("Group added!"); onNewGroupAdded(); onChange(data.name); setDialogOpen(false); setNewGroupName(""); }
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Group added!");
+      onNewGroupAdded();
+      onChange(data.name);
+      setDialogOpen(false);
+      setNewGroupName("");
+    }
     setIsAdding(false);
   };
 
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild><Button variant="outline" className="w-full justify-between">{value || "Select class..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></PopoverTrigger>
+        <PopoverTrigger asChild>
+          <Button variant="outline" className="w-full justify-between">
+            {value || "Select class..."}
+            <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+          </Button>
+        </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
           <Command>
             <CommandInput placeholder="Search..." />
             <CommandList>
               <CommandEmpty>No results.</CommandEmpty>
-              <CommandGroup>{classGroups.map((cg: any) => (<CommandItem key={cg.id} value={cg.name} onSelect={() => { onChange(cg.name); setOpen(false); }}>{cg.name}</CommandItem>))}</CommandGroup>
+              <CommandGroup>
+                {classGroups.map((cg) => (
+                  <CommandItem key={cg.id} value={cg.name} onSelect={() => { onChange(cg.name); setOpen(false); }}>
+                    {cg.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
               <CommandSeparator />
-              <CommandGroup><CommandItem onSelect={() => { setOpen(false); setDialogOpen(true); }}><PlusCircle className="mr-2 h-4 w-4" /> Add New</CommandItem></CommandGroup>
+              <CommandGroup>
+                <CommandItem onSelect={() => { setOpen(false); setDialogOpen(true); }}>
+                  <PlusCircle className="mr-2 h-4 w-4" /> Add New
+                </CommandItem>
+              </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>
       </Popover>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Add Class Group</DialogTitle></DialogHeader>
-          <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} />
-          <DialogFooter><Button onClick={handleAdd} disabled={isAdding}>Add</Button></DialogFooter>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Class Group</DialogTitle></DialogHeader>
+          <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="e.g. BSc" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAdd} disabled={isAdding}>Add</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
   );
 }
 
-function StudentTypeCombobox({ studentTypes, value, onChange, onNewTypeAdded }: any) {
+function StudentTypeCombobox({ studentTypes, value, onChange, onNewTypeAdded }: { studentTypes: StudentType[], value: string, onChange: (val: string) => void, onNewTypeAdded: () => void }) {
   const [open, setOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
@@ -297,31 +332,57 @@ function StudentTypeCombobox({ studentTypes, value, onChange, onNewTypeAdded }: 
     if (!newTypeName.trim()) return;
     setIsAdding(true);
     const { data, error } = await supabase.from("student_types").insert({ name: newTypeName.trim() }).select().single();
-    if (error) toast.error(error.message);
-    else { toast.success("Type added!"); onNewTypeAdded(); onChange(data.id); setDialogOpen(false); setNewTypeName(""); }
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Type added!");
+      onNewTypeAdded();
+      onChange(data.id);
+      setDialogOpen(false);
+      setNewTypeName("");
+    }
     setIsAdding(false);
   };
 
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild><Button variant="outline" className="w-full justify-between">{value ? studentTypes.find((st: any) => st.id === value)?.name : "Select type..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></PopoverTrigger>
+        <PopoverTrigger asChild>
+          <Button variant="outline" className="w-full justify-between">
+            {value ? studentTypes.find((st) => st.id === value)?.name : "Select type..."}
+            <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+          </Button>
+        </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
           <Command>
             <CommandInput placeholder="Search..." />
             <CommandList>
               <CommandEmpty>No results.</CommandEmpty>
-              <CommandGroup>{studentTypes.map((st: any) => (<CommandItem key={st.id} value={st.name} onSelect={() => { onChange(st.id); setOpen(false); }}>{st.name}</CommandItem>))}</CommandGroup>
+              <CommandGroup>
+                {studentTypes.map((st) => (
+                  <CommandItem key={st.id} value={st.name} onSelect={() => { onChange(st.id); setOpen(false); }}>
+                    {st.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
               <CommandSeparator />
-              <CommandGroup><CommandItem onSelect={() => { setOpen(false); setDialogOpen(true); }}><PlusCircle className="mr-2 h-4 w-4" /> Add New</CommandItem></CommandGroup>
+              <CommandGroup>
+                <CommandItem onSelect={() => { setOpen(false); setDialogOpen(true); }}>
+                  <PlusCircle className="mr-2 h-4 w-4" /> Add New
+                </CommandItem>
+              </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>
       </Popover>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Add Student Type</DialogTitle></DialogHeader>
-          <Input value={newTypeName} onChange={e => setNewTypeName(e.target.value)} />
-          <DialogFooter><Button onClick={handleAdd} disabled={isAdding}>Add</Button></DialogFooter>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Student Type</DialogTitle></DialogHeader>
+          <Input value={newTypeName} onChange={e => setNewTypeName(e.target.value)} placeholder="e.g. Regular" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAdd} disabled={isAdding}>Add</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
