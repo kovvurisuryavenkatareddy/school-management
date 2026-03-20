@@ -107,7 +107,6 @@ export function FeeRegisterView() {
 
       const studentIds = students.map((s: any) => s.id);
       
-      // Batch fetch payments to avoid URL length issues (400 Bad Request)
       const allPayments: any[] = [];
       const CHUNK_SIZE = 100;
       for (let i = 0; i < studentIds.length; i += CHUNK_SIZE) {
@@ -124,9 +123,10 @@ export function FeeRegisterView() {
       const processed: StudentRegisterRecord[] = students.map(student => {
         const normalizedFee = normalizeFeeStructure(student.fee_details);
         
+        // Ensure we process all selected years OR all available years if none selected
         const yearEntries = Object.entries(normalizedFee).filter(([yearName]) => {
           if (selectedStudyingYears.length === 0) return true;
-          return selectedStudyingYears.includes(yearName);
+          return selectedStudyingYears.some(sy => yearName.toLowerCase().includes(sy.toLowerCase()));
         });
 
         const years: YearData[] = yearEntries.map(([yearName, feeItems]) => {
@@ -138,7 +138,7 @@ export function FeeRegisterView() {
             const expected = termItem?.amount || 0;
             
             const paid = allPayments
-              .filter(p => p.student_id === student.id && p.fee_type === `${yearName} - ${term.name}`)
+              .filter(p => p.student_id === student.id && p.fee_type.toLowerCase().includes(`${yearName} - ${term.name}`.toLowerCase()))
               .reduce((sum, p) => sum + p.amount, 0);
 
             const pending = Math.max(0, expected - paid);
@@ -147,8 +147,6 @@ export function FeeRegisterView() {
             if (expected > 0) {
               if (paid >= expected - 0.05) status = 'Paid';
               else if (paid > 0.01) status = 'Partial';
-            } else if (paid > 0.01) {
-              status = 'Paid';
             } else {
               status = 'Paid';
             }
@@ -186,7 +184,7 @@ export function FeeRegisterView() {
           rows.push({
             "Roll Number": student.roll_number,
             "Student Name": student.name,
-            "Class": `${student.class}-${student.section}`,
+            "Group": `${student.class}-${student.section}`,
             "Academic Year": year.yearName,
             "Term": term.termName,
             "Expected Amount": term.expected,
@@ -237,18 +235,18 @@ export function FeeRegisterView() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-muted-foreground">Class</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Group (Class)</Label>
               <Select value={selectedClass} onValueChange={setSelectedClass}>
-                <SelectTrigger className="h-10"><SelectValue placeholder="All Classes" /></SelectTrigger>
+                <SelectTrigger className="h-10"><SelectValue placeholder="All Groups" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Classes</SelectItem>
+                  <SelectItem value="all">All Groups</SelectItem>
                   {classes.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-muted-foreground">Studying Years (Multi-select)</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Studying Years</Label>
               <MultiSelect
                 options={studyingYears.map(sy => ({ label: sy.name, value: sy.name }))}
                 value={selectedStudyingYears}
@@ -258,7 +256,7 @@ export function FeeRegisterView() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-muted-foreground">Terms (Multi-select)</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Terms</Label>
               <MultiSelect
                 options={FIXED_TERMS.map(t => ({ label: t.name, value: t.name }))}
                 value={selectedTerms}

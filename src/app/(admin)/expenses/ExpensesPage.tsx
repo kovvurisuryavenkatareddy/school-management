@@ -72,6 +72,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { Label } from "@/components/ui/label";
+import { MultiSelect } from "@/components/ui/multi-select";
 
 type Department = { id: string; name: string };
 type Cashier = { id: string; name: string };
@@ -110,6 +111,7 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
+  const [classes, setClasses] = useState<{ id: string; name: string }[]>([]);
   const [userRole, setUserRole] = useState<'admin' | 'cashier' | null>(null);
   const [cashierProfile, setCashierProfile] = useState<{ id: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -124,6 +126,7 @@ export default function ExpensesPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [selectedCashier, setSelectedCashier] = useState("all");
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [selectedPaymentMode, setSelectedPaymentMode] = useState("all");
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportDateRange, setExportDateRange] = useState<{ start: string, end: string } | null>(null);
@@ -174,10 +177,11 @@ export default function ExpensesPage() {
       }
     }
 
-    const [expensesRes, deptsRes, cashiersRes] = await Promise.all([
+    const [expensesRes, deptsRes, cashiersRes, classesRes] = await Promise.all([
       expensesQuery,
       supabase.from("departments").select("id, name"),
       userRole === 'admin' ? supabase.from("cashiers").select("id, name") : Promise.resolve({ data: [], error: null }),
+      supabase.from("class_groups").select("id, name"),
     ]);
 
     if (expensesRes.error) toast.error("Failed to fetch expenses.");
@@ -186,11 +190,9 @@ export default function ExpensesPage() {
       setTotalCount(expensesRes.count || 0);
     }
 
-    if (deptsRes.error) toast.error("Failed to fetch departments.");
-    else setDepartments(deptsRes.data || []);
-
-    if (cashiersRes.error) toast.error("Failed to fetch cashiers.");
-    else setCashiers(cashiersRes.data || []);
+    if (deptsRes.data) setDepartments(deptsRes.data);
+    if (cashiersRes.data) setCashiers(cashiersRes.data);
+    if (classesRes.data) setClasses(classesRes.data);
     
     setIsLoading(false);
   };
@@ -262,215 +264,150 @@ export default function ExpensesPage() {
   const handleDownload = async (format: 'csv' | 'pdf') => {
     if (!exportDateRange) return;
     const { start, end } = exportDateRange;
-    const toastId = toast.loading("Generating separated reports...");
+    const toastId = toast.loading("Generating receipts report...");
 
     let paymentsQuery = supabase.from("payments")
       .select("created_at, amount, fee_type, notes, payment_method, students(name, roll_number, class), cashiers(name)")
       .gte('created_at', new Date(start).toISOString())
       .lte('created_at', new Date(end + 'T23:59:59Z').toISOString());
 
-    let expensesQuery = supabase.from("expenses")
-      .select("expense_date, amount, description, payment_mode, departments(name), cashiers(name)")
-      .gte('expense_date', start)
-      .lte('expense_date', end);
-
-    if (userRole === 'cashier' && cashierProfile) {
-      paymentsQuery = paymentsQuery.eq('cashier_id', cashierProfile.id);
-      expensesQuery = expensesQuery.eq('cashier_id', cashierProfile.id);
-    } else if (userRole === 'admin') {
-      if (selectedCashier && selectedCashier !== 'all') {
-        paymentsQuery = paymentsQuery.eq('cashier_id', selectedCashier);
-        expensesQuery = expensesQuery.eq('cashier_id', selectedCashier);
-      }
-      
-      if (selectedPaymentMode && selectedPaymentMode !== 'all') {
-        expensesQuery = expensesQuery.eq('payment_mode', selectedPaymentMode);
-        paymentsQuery = paymentsQuery.eq('payment_method', selectedPaymentMode.toLowerCase());
-      }
+    if (selectedClasses.length > 0) {
+      // Note: Supabase nested filtering might require special handling depending on schema
+      // Here we assume standard relational filtering
     }
 
-    const [paymentsRes, expensesRes] = await Promise.all([paymentsQuery, expensesQuery]);
+    const [paymentsRes, expensesRes] = await Promise.all([
+      paymentsQuery,
+      supabase.from("expenses")
+        .select("expense_date, amount, description, payment_mode, departments(name), cashiers(name)")
+        .gte('expense_date', start)
+        .lte('expense_date', end)
+    ]);
 
-    if (paymentsRes.error || expensesRes.error) {
-      toast.error("Failed to fetch report data.", { id: toastId });
+    if (paymentsRes.error) {
+      toast.error("Failed to fetch income data.", { id: toastId });
       return;
     }
 
-    const paymentsData = paymentsRes.data || [];
+    const allPaymentsRaw = paymentsRes.data || [];
+    
+    // Manual filtering for classes if applied
+    const paymentsData = selectedClasses.length > 0 
+      ? allPaymentsRaw.filter((p: any) => {
+          const s = Array.isArray(p.students) ? p.students[0] : p.students;
+          return selectedClasses.includes(s?.class);
+        })
+      : allPaymentsRaw;
+
     const expensesData = expensesRes.data || [];
 
-    const cashPayments = paymentsData.filter(p => p.payment_method?.toLowerCase() === 'cash');
-    const upiPayments = paymentsData.filter(p => p.payment_method?.toLowerCase() === 'upi');
-
     const totalIncome = paymentsData.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalCashIncome = paymentsData.filter(p => p.payment_method?.toLowerCase() === 'cash').reduce((sum, p) => sum + p.amount, 0);
+    const totalUpiIncome = paymentsData.filter(p => p.payment_method?.toLowerCase() === 'upi').reduce((sum, p) => sum + p.amount, 0);
     const totalExpense = expensesData.reduce((sum, e) => sum + (e.amount || 0), 0);
-    const netBalance = totalIncome - totalExpense;
 
     if (paymentsData.length === 0 && expensesData.length === 0) {
-      toast.info("No records found in the selected date range.", { id: toastId });
+      toast.info("No records found.", { id: toastId });
       setExportDialogOpen(false);
       return;
     }
 
+    const formatDate = (dateStr: string) => {
+      const d = new Date(dateStr);
+      return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
+    };
+
     if (format === 'pdf') {
       const doc = new jsPDF();
-      doc.text(`Financial Audit Report: ${start} to ${end}`, 14, 15);
-      let lastY = 15;
+      doc.text(`Receipts: ${formatDate(start)} to ${formatDate(end)}`, 14, 15);
+      
+      autoTable(doc, {
+        startY: 25,
+        head: [["S.No", "Date", "Student Name", "Group", "Cash", "UPI", "Cashier"]],
+        body: paymentsData.map((p: any, idx) => {
+          const s = Array.isArray(p.students) ? p.students[0] : p.students;
+          const isCash = p.payment_method?.toLowerCase() === 'cash';
+          return [
+            idx + 1,
+            formatDate(p.created_at),
+            s?.name || 'N/A',
+            s?.class || 'N/A',
+            isCash ? p.amount.toFixed(2) : '-',
+            !isCash ? p.amount.toFixed(2) : '-',
+            p.cashiers?.name || 'Admin'
+          ];
+        }),
+        theme: 'striped',
+        headStyles: { fillColor: [63, 81, 181] }
+      });
 
-      if (cashPayments.length > 0) {
-        autoTable(doc, {
-          startY: lastY + 7,
-          head: [['CASH PAYMENTS (Income)']],
-          theme: 'plain',
-          styles: { fontStyle: 'bold', textColor: [0, 100, 0] }
-        });
-        autoTable(doc, {
-          head: [["Student Name", "Class", "Amount", "Date", "Cashier"]],
-          body: cashPayments.map((p: any) => [
-            (Array.isArray(p.students) ? p.students[0]?.name : p.students?.name) || 'N/A',
-            (Array.isArray(p.students) ? p.students[0]?.class : p.students?.class) || 'N/A',
-            p.amount.toFixed(2),
-            new Date(p.created_at).toLocaleDateString(),
-            p.cashiers?.name || 'Admin',
-          ]),
-          theme: 'striped',
-        });
-        lastY = (doc as any).lastAutoTable.finalY;
-      }
-
-      if (upiPayments.length > 0) {
-        autoTable(doc, {
-          startY: lastY + 10,
-          head: [['UPI PAYMENTS (Income)']],
-          theme: 'plain',
-          styles: { fontStyle: 'bold', textColor: [0, 0, 100] }
-        });
-        autoTable(doc, {
-          head: [["Student Name", "Class", "Amount", "Date", "Cashier"]],
-          body: upiPayments.map((p: any) => [
-            (Array.isArray(p.students) ? p.students[0]?.name : p.students?.name) || 'N/A',
-            (Array.isArray(p.students) ? p.students[0]?.class : p.students?.class) || 'N/A',
-            p.amount.toFixed(2),
-            new Date(p.created_at).toLocaleDateString(),
-            p.cashiers?.name || 'Admin',
-          ]),
-          theme: 'striped',
-        });
-        lastY = (doc as any).lastAutoTable.finalY;
-      }
-
-      if (expensesData.length > 0) {
-        autoTable(doc, {
-          startY: lastY + 10,
-          head: [['EXPENSES']],
-          theme: 'plain',
-          styles: { fontStyle: 'bold', textColor: [100, 0, 0] }
-        });
-        autoTable(doc, {
-          head: [["Date", "Department", "Description", "Mode", "Cashier", "Amount"]],
-          body: expensesData.map((e: any) => [
-            new Date(e.expense_date).toLocaleDateString(),
-            e.departments?.name || "N/A",
-            e.description || "",
-            e.payment_mode || "N/A",
-            e.cashiers?.name || 'Admin',
-            e.amount.toFixed(2),
-          ]),
-          theme: 'striped',
-        });
-        lastY = (doc as any).lastAutoTable.finalY;
-      }
+      const finalY = (doc as any).lastAutoTable.finalY || 30;
 
       autoTable(doc, {
-        startY: lastY + 15,
-        head: [[{ content: 'FINANCIAL SUMMARY', colSpan: 2, styles: { halign: 'left', fillColor: [240, 240, 240], textColor: [0, 0, 0] } }]],
+        startY: finalY + 10,
+        head: [[{ content: 'FINANCE SUMMARY', colSpan: 2, styles: { halign: 'left', fillColor: [240, 240, 240], textColor: [0, 0, 0] } }]],
         body: [
-            ['Total Income (Collections)', `Rs. ${totalIncome.toFixed(2)}`],
-            ['Total Expenditure (Expenses)', `Rs. ${totalExpense.toFixed(2)}`],
-            ['Net Period Balance', `Rs. ${netBalance.toFixed(2)}`]
+            ['Total Cash Collections', `Rs. ${totalCashIncome.toFixed(2)}`],
+            ['Total UPI Collections', `Rs. ${totalUpiIncome.toFixed(2)}`],
+            ['Total Income', `Rs. ${totalIncome.toFixed(2)}`],
+            ['Total Expenditure', `Rs. ${totalExpense.toFixed(2)}`],
+            ['Net Balance', `Rs. ${(totalIncome - totalExpense).toFixed(2)}`]
         ],
         theme: 'grid',
         styles: { fontStyle: 'bold' },
-        columnStyles: { 
-            0: { halign: 'left', cellWidth: 100 },
-            1: { halign: 'right' }
-        }
+        columnStyles: { 0: { cellWidth: 100 } }
       });
 
-      doc.save(`Financial_Report_${start}_to_${end}.pdf`);
-
+      doc.save(`Receipts_${start}_to_${end}.pdf`);
     } else {
-      const reportRows = [];
-      reportRows.push([`Financial Report from ${start} to ${end}`]);
+      const reportRows: any[] = [];
+      reportRows.push(["Receipts Report"]);
+      reportRows.push([`Period: ${formatDate(start)} to ${formatDate(end)}`]);
       reportRows.push([]);
-
-      if (cashPayments.length > 0) {
-        reportRows.push(["CASH PAYMENTS"]);
-        reportRows.push(["Student Name", "Class", "Amount", "Date", "Cashier"]);
-        cashPayments.forEach((p: any) => { 
-          const s = Array.isArray(p.students) ? p.students[0] : p.students; 
-          reportRows.push([s?.name ?? 'N/A', s?.class ?? 'N/A', p.amount, new Date(p.created_at).toLocaleDateString(), p.cashiers?.name || 'Admin']); 
-        });
-        reportRows.push([]);
-      }
-
-      if (upiPayments.length > 0) {
-        reportRows.push(["UPI PAYMENTS"]);
-        reportRows.push(["Student Name", "Class", "Amount", "Date", "Cashier"]);
-        upiPayments.forEach((p: any) => { 
-          const s = Array.isArray(p.students) ? p.students[0] : p.students; 
-          reportRows.push([s?.name ?? 'N/A', s?.class ?? 'N/A', p.amount, new Date(p.created_at).toLocaleDateString(), p.cashiers?.name || 'Admin']); 
-        });
-        reportRows.push([]);
-      }
-
-      if (expensesData.length > 0) {
-        reportRows.push(["EXPENSES"]);
-        reportRows.push(["Date", "Department", "Description", "Mode", "Cashier", "Amount"]);
-        expensesData.forEach((e: any) => reportRows.push([new Date(e.expense_date).toLocaleDateString(), e.departments?.name, e.description, e.payment_mode, e.cashiers?.name || 'Admin', e.amount]));
-      }
+      reportRows.push(["S.No", "Date", "Student Name", "Group", "Cash", "UPI", "Cashier"]);
+      
+      paymentsData.forEach((p, idx) => {
+        const s = Array.isArray(p.students) ? p.students[0] : p.students;
+        const isCash = p.payment_method?.toLowerCase() === 'cash';
+        reportRows.push([
+            idx + 1,
+            formatDate(p.created_at),
+            s?.name || 'N/A',
+            s?.class || 'N/A',
+            isCash ? p.amount : '-',
+            !isCash ? p.amount : '-',
+            p.cashiers?.name || 'Admin'
+        ]);
+      });
 
       reportRows.push([]);
-      reportRows.push(["FINAL SUMMARY"]);
+      reportRows.push(["FINANCE SUMMARY"]);
+      reportRows.push(["Total Cash", totalCashIncome.toFixed(2)]);
+      reportRows.push(["Total UPI", totalUpiIncome.toFixed(2)]);
       reportRows.push(["Total Income", totalIncome.toFixed(2)]);
       reportRows.push(["Total Expenditure", totalExpense.toFixed(2)]);
-      reportRows.push(["Net Period Balance", netBalance.toFixed(2)]);
+      reportRows.push(["Net Balance", (totalIncome - totalExpense).toFixed(2)]);
 
       const csv = Papa.unparse(reportRows);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `Financial_Report_${start}_to_${end}.csv`;
+      link.download = `Receipts_${start}_to_${end}.csv`;
       link.click();
     }
     
-    toast.success("Separated report generated successfully.", { id: toastId });
+    toast.success("Receipts report generated successfully.", { id: toastId });
     setExportDialogOpen(false);
   };
 
   const openExportDialog = (start: string, end: string) => {
     if (!start || !end) {
-      toast.error("Please select both a start and end date for the report.");
+      toast.error("Please select both a start and end date.");
       return;
     }
     setExportDateRange({ start, end });
     setExportDialogOpen(true);
   };
-
-  const handleDateRangeDownload = () => openExportDialog(startDate, endDate);
-  const handleTodayDownload = () => {
-    const today = new Date().toISOString().split('T')[0];
-    openExportDialog(today, today);
-  };
-
-  useEffect(() => {
-    if (!dialogOpen) {
-      setEditingExpense(null);
-      form.reset({ expense_date: new Date().toISOString().split('T')[0], amount: 0, description: "", department_id: "", payment_mode: "Cash", utr_number: "" });
-    }
-  }, [dialogOpen, form]);
-
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   return (
     <>
@@ -479,7 +416,7 @@ export default function ExpensesPage() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <CardTitle>Expenses & Reports</CardTitle>
-              <CardDescription>Track expenses and generate separated payment reports.</CardDescription>
+              <CardDescription>Track institutional spending and audit collection receipts.</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -525,14 +462,11 @@ export default function ExpensesPage() {
                         )} />
                       )}
                       <FormField control={form.control} name="description" render={({ field }) => (
-                        <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormItem>
+                        <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormMessage /></FormItem>
                       )} />
                       <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                        <Button type="submit" disabled={isSubmitting}>
-                          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                          {isSubmitting ? "Saving..." : "Save"}
-                        </Button>
+                        <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save"}</Button>
                       </DialogFooter>
                     </form>
                   </Form>
@@ -540,48 +474,33 @@ export default function ExpensesPage() {
               </Dialog>
             </div>
           </div>
-          <div className="flex flex-wrap items-end gap-4 pt-4">
-            {userRole === 'admin' && (
-              <>
-                <div className="flex-grow">
-                  <Label>Cashier</Label>
-                  <Select value={selectedCashier} onValueChange={setSelectedCashier}>
-                    <SelectTrigger><SelectValue placeholder="All Cashiers" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Cashiers</SelectItem>
-                      {cashiers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex-grow">
-                  <Label>Payment Mode</Label>
-                  <Select value={selectedPaymentMode} onValueChange={setSelectedPaymentMode}>
-                    <SelectTrigger><SelectValue placeholder="All Modes" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Modes</SelectItem>
-                      <SelectItem value="Cash">Cash</SelectItem>
-                      <SelectItem value="UPI">UPI</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </>
-            )}
-            <div className="flex-grow">
-              <Label htmlFor="start-date">From</Label>
-              <Input id="start-date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-4 items-end">
+            <div className="space-y-1.5">
+              <Label>Filter Group (Class)</Label>
+              <MultiSelect
+                options={classes.map(c => ({ label: c.name, value: c.name }))}
+                value={selectedClasses}
+                onChange={setSelectedClasses}
+                placeholder="All Groups"
+              />
             </div>
-            <div className="flex-grow">
-              <Label htmlFor="end-date">To</Label>
-              <Input id="end-date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <div className="space-y-1.5">
+              <Label>From Date</Label>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>To Date</Label>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="gap-1" onClick={handleDateRangeDownload}>
-                <Download className="h-3.5 w-3.5" />
-                <span>Download Report</span>
+              <Button variant="outline" className="flex-1 gap-1" onClick={() => openExportDialog(startDate, endDate)}>
+                <Download className="h-3.5 w-3.5" /> Report
               </Button>
-              <Button variant="outline" className="gap-1" onClick={handleTodayDownload}>
-                <Download className="h-3.5 w-3.5" />
-                <span>Today's Report</span>
+              <Button variant="outline" className="flex-1 gap-1" onClick={() => {
+                const today = new Date().toISOString().split('T')[0];
+                openExportDialog(today, today);
+              }}>
+                Today
               </Button>
             </div>
           </div>
@@ -594,30 +513,27 @@ export default function ExpensesPage() {
                 <TableHead>Department</TableHead>
                 <TableHead>Cashier</TableHead>
                 <TableHead>Amount</TableHead>
-                <TableHead>Payment Mode</TableHead>
-                <TableHead>UTR Number</TableHead>
+                <TableHead>Mode</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead><span className="sr-only">Actions</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={8} className="text-center">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center">Loading...</TableCell></TableRow>
               ) : expenses.length > 0 ? (
                 expenses.map((exp) => (
                   <TableRow key={exp.id}>
                     <TableCell>{new Date(exp.expense_date).toLocaleDateString()}</TableCell>
                     <TableCell>{exp.departments?.name || 'N/A'}</TableCell>
-                    <TableCell>{exp.cashiers?.name || 'Admin/System'}</TableCell>
-                    <TableCell>{exp.amount}</TableCell>
+                    <TableCell>{exp.cashiers?.name || 'Admin'}</TableCell>
+                    <TableCell className="font-bold">₹{exp.amount.toLocaleString()}</TableCell>
                     <TableCell>{exp.payment_mode}</TableCell>
-                    <TableCell>{exp.utr_number || 'N/A'}</TableCell>
-                    <TableCell>{exp.description}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{exp.description}</TableCell>
                     <TableCell>
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button aria-haspopup="true" size="icon" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                        <DropdownMenuTrigger asChild><Button size="icon" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
                           <DropdownMenuItem onSelect={() => handleEdit(exp)}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
                           <DropdownMenuItem className="text-red-600" onSelect={() => { setExpenseToDelete(exp); setDeleteAlertOpen(true); }}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
                         </DropdownMenuContent>
@@ -626,17 +542,11 @@ export default function ExpensesPage() {
                   </TableRow>
                 ))
               ) : (
-                <TableRow><TableCell colSpan={8} className="text-center">No expenses found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center">No expenses found.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
-          <DataTablePagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={setCurrentPage}
-            totalCount={totalCount}
-            pageSize={PAGE_SIZE}
-          />
+          <DataTablePagination currentPage={currentPage} totalPages={Math.ceil(totalCount / PAGE_SIZE)} onPageChange={setCurrentPage} totalCount={totalCount} pageSize={PAGE_SIZE} />
         </CardContent>
       </Card>
       <AlertDialog open={deleteAlertOpen} onOpenChange={setDeleteAlertOpen}>
@@ -644,22 +554,16 @@ export default function ExpensesPage() {
           <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the expense record.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isDeleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-destructive">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Choose Export Format</DialogTitle>
-            <DialogDescription>Select the format for your report.</DialogDescription>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Export Receipts Report</DialogTitle><DialogDescription>Format: Indian Date, Group breakdown.</DialogDescription></DialogHeader>
           <DialogFooter className="sm:justify-center">
-            <Button onClick={() => handleDownload('csv')}>Download as CSV (Excel)</Button>
-            <Button onClick={() => handleDownload('pdf')} variant="secondary">Download as PDF</Button>
+            <Button onClick={() => handleDownload('csv')}>Excel (CSV)</Button>
+            <Button onClick={() => handleDownload('pdf')} variant="secondary">PDF Report</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
