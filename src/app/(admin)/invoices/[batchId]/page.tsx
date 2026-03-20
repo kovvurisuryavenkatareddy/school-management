@@ -73,6 +73,7 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
   const [addStudentDialogOpen, setAddStudentDialogOpen] = useState(false);
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [isProvisioning, setIsProvisioning] = useState(false);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   // Dialog filters
   const [dialogSearch, setDialogSearch] = useState("");
@@ -121,7 +122,6 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
   };
 
   const fetchLookupData = async () => {
-    // 1. Fetch Lookups
     const [classesRes, yearsRes, sectionsRes, typesRes] = await Promise.all([
       supabase.from('class_groups').select('id, name'),
       supabase.from('studying_years').select('id, name'),
@@ -136,17 +136,16 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
         types: typesRes.data || []
     });
 
-    // 2. Fetch ALL students in chunks (Supabase has a 1000 row limit by default)
     let fetchedStudents: any[] = [];
     let page = 0;
-    const PAGE_SIZE = 1000;
+    const CHUNK_SIZE = 1000;
 
     while (true) {
         const { data, error } = await supabase
             .from('students')
             .select('id, name, roll_number, class, section, studying_year, student_type_id')
             .order('name', { ascending: true })
-            .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+            .range(page * CHUNK_SIZE, (page + 1) * CHUNK_SIZE - 1);
 
         if (error) {
             toast.error("Error loading complete student list.");
@@ -156,7 +155,7 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
         if (!data || data.length === 0) break;
         
         fetchedStudents = [...fetchedStudents, ...data];
-        if (data.length < PAGE_SIZE) break;
+        if (data.length < CHUNK_SIZE) break;
         page++;
     }
     
@@ -186,6 +185,13 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
         return null;
     }
 
+    if (!batchInfo) {
+        if (!silent) toast.error("Batch information not fully loaded. Please try again.");
+        return null;
+    }
+
+    if (!silent) setProcessingId(studentId);
+
     try {
         const { data: newInvoice, error } = await supabase.from('invoices').insert({
             student_id: studentId,
@@ -206,10 +212,20 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
             amount: batchInfo.amount
         });
 
-        return newInvoice as StudentInvoice;
+        const normalizedInvoice = newInvoice as StudentInvoice;
+        
+        // Update local state if this is a single addition
+        if (!silent) {
+            setInvoices(prev => [...prev, normalizedInvoice]);
+            toast.success("Student added successfully!");
+        }
+
+        return normalizedInvoice;
     } catch (err: any) {
         if (!silent) toast.error(`Provisioning failed: ${err.message}`);
         return null;
+    } finally {
+        if (!silent) setProcessingId(null);
     }
   };
 
@@ -224,18 +240,24 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
     const toastId = toast.loading(`Provisioning fee to ${toAdd.length} students...`);
     
     let successCount = 0;
-    const results = [];
+    const newInvoices: StudentInvoice[] = [];
 
+    // Process in sequential order to avoid hitting rate limits too hard
     for (const student of toAdd) {
         const res = await handleAddStudent(student.id, true);
         if (res) {
             successCount++;
-            results.push(res);
+            newInvoices.push(res);
         }
     }
 
-    setInvoices(prev => [...prev, ...results]);
-    toast.success(`Successfully assigned fee to ${successCount} students!`, { id: toastId });
+    if (successCount > 0) {
+        setInvoices(prev => [...prev, ...newInvoices]);
+        toast.success(`Successfully assigned fee to ${successCount} students!`, { id: toastId });
+    } else {
+        toast.error("Bulk provisioning failed or no students were added.", { id: toastId });
+    }
+    
     setIsProvisioning(false);
   };
 
@@ -460,6 +482,8 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
                         <div className="divide-y">
                             {searchedStudents.slice(0, 250).map(student => {
                                 const isAlreadyIn = invoices.some(inv => inv.students.id === student.id);
+                                const isProcessing = processingId === student.id;
+
                                 return (
                                     <div key={student.id} className="flex items-center justify-between p-3 hover:bg-background transition-colors">
                                         <div className="flex flex-col">
@@ -473,15 +497,17 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
                                             </div>
                                         </div>
                                         {isAlreadyIn ? (
-                                            <Badge variant="secondary" className="gap-1 h-6 text-[9px]"><Check className="h-2 w-2" /> Assigned</Badge>
+                                            <Badge variant="secondary" className="gap-1 h-6 text-[9px] bg-emerald-50 text-emerald-700 border-emerald-100">
+                                                <Check className="h-2 w-2" /> Assigned
+                                            </Badge>
                                         ) : (
                                             <Button 
                                                 size="sm" 
                                                 className="h-8 font-black text-[10px] uppercase px-4"
                                                 onClick={() => handleAddStudent(student.id)}
-                                                disabled={isProvisioning}
+                                                disabled={isProvisioning || isProcessing}
                                             >
-                                                Add Student
+                                                {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add Student"}
                                             </Button>
                                         )}
                                     </div>
