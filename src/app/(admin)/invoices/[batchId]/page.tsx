@@ -121,21 +121,46 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
   };
 
   const fetchLookupData = async () => {
-    const [studentsRes, classesRes, yearsRes, sectionsRes, typesRes] = await Promise.all([
-      supabase.from('students').select('id, name, roll_number, class, section, studying_year, student_type_id').order('name', { ascending: true }),
+    // 1. Fetch Lookups
+    const [classesRes, yearsRes, sectionsRes, typesRes] = await Promise.all([
       supabase.from('class_groups').select('id, name'),
       supabase.from('studying_years').select('id, name'),
       supabase.from('sections').select('id, name'),
       supabase.from('student_types').select('id, name')
     ]);
 
-    if (studentsRes.data) setAllStudents(studentsRes.data);
     setOptions({
         classes: classesRes.data || [],
         years: yearsRes.data || [],
         sections: sectionsRes.data || [],
         types: typesRes.data || []
     });
+
+    // 2. Fetch ALL students in chunks (Supabase has a 1000 row limit by default)
+    let fetchedStudents: any[] = [];
+    let page = 0;
+    const PAGE_SIZE = 1000;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('students')
+            .select('id, name, roll_number, class, section, studying_year, student_type_id')
+            .order('name', { ascending: true })
+            .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+        if (error) {
+            toast.error("Error loading complete student list.");
+            break;
+        }
+
+        if (!data || data.length === 0) break;
+        
+        fetchedStudents = [...fetchedStudents, ...data];
+        if (data.length < PAGE_SIZE) break;
+        page++;
+    }
+    
+    setAllStudents(fetchedStudents);
   };
 
   useEffect(() => {
@@ -433,7 +458,7 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
                 <ScrollArea className="h-72 border rounded-xl bg-muted/20">
                     {searchedStudents.length > 0 ? (
                         <div className="divide-y">
-                            {searchedStudents.slice(0, 100).map(student => {
+                            {searchedStudents.slice(0, 250).map(student => {
                                 const isAlreadyIn = invoices.some(inv => inv.students.id === student.id);
                                 return (
                                     <div key={student.id} className="flex items-center justify-between p-3 hover:bg-background transition-colors">
