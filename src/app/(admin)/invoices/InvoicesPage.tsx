@@ -6,10 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { toast } from "sonner";
-import { PlusCircle, Eye, Trash2, Pencil, MoreHorizontal, Loader2, Download, FileSpreadsheet } from "lucide-react";
-import Papa from "papaparse";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { PlusCircle, Eye, Trash2, Pencil, MoreHorizontal, Loader2 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -59,15 +56,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTablePagination } from "@/components/data-table-pagination";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { MultiSelect } from "@/components/ui/multi-select";
 
 type InvoiceSummary = {
   batch_id: string;
@@ -79,17 +73,10 @@ type InvoiceSummary = {
   pending_students: number;
 };
 
-type Option = { label: string; value: string };
-
 const editBatchSchema = z.object({
   batch_description: z.string().min(1, "Description is required"),
   due_date: z.string().min(1, "Due date is required"),
   penalty_amount_per_day: z.coerce.number().min(0, "Penalty must be 0 or more"),
-  fee_structure_ids: z.array(z.string()).optional(),
-  class_filters: z.array(z.string()).optional(),
-  section_filters: z.array(z.string()).optional(),
-  studying_year_filters: z.array(z.string()).optional(),
-  student_type_filters: z.array(z.string()).optional(),
 });
 
 const PAGE_SIZE = 10;
@@ -105,13 +92,6 @@ export default function InvoicesPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState<InvoiceSummary | null>(null);
 
-  // Filter Options State
-  const [feeOptions, setFeeOptions] = useState<Option[]>([]);
-  const [classOptions, setClassOptions] = useState<Option[]>([]);
-  const [sectionOptions, setSectionOptions] = useState<Option[]>([]);
-  const [studyingYearOptions, setStudyingYearOptions] = useState<Option[]>([]);
-  const [studentTypeOptions, setStudentTypeOptions] = useState<Option[]>([]);
-
   const form = useForm<z.infer<typeof editBatchSchema>>({
     resolver: zodResolver(editBatchSchema),
   });
@@ -126,55 +106,7 @@ export default function InvoicesPage() {
 
   useEffect(() => {
     fetchSummaries();
-    const fetchAllOptions = async () => {
-        const [fees, types, groups, years, sections] = await Promise.all([
-            supabase.from("fee_structures").select("id, fee_name"),
-            supabase.from("student_types").select("id, name"),
-            supabase.from("class_groups").select("id, name"),
-            supabase.from("studying_years").select("id, name"),
-            supabase.from("sections").select("id, name"),
-        ]);
-        if (fees.data) setFeeOptions(fees.data.map(f => ({ label: f.fee_name, value: f.id })));
-        if (types.data) setStudentTypeOptions(types.data.map(t => ({ label: t.name, value: t.id })));
-        if (groups.data) setClassOptions(groups.data.map(g => ({ label: g.name, value: g.name })));
-        if (years.data) setStudyingYearOptions(years.data.map(y => ({ label: y.name, value: y.name })));
-        if (sections.data) setSectionOptions(sections.data.map(s => ({ label: s.name, value: s.name })));
-    };
-    fetchAllOptions();
   }, []);
-
-  const handleExport = (format: 'csv' | 'pdf') => {
-    if (summaries.length === 0) {
-        toast.info("No invoice data to export.");
-        return;
-    }
-
-    if (format === 'pdf') {
-        const doc = new jsPDF();
-        doc.text("Invoice Batch Report", 14, 15);
-        autoTable(doc, {
-            startY: 25,
-            head: [["Description", "Amount", "Total Students", "Paid", "Pending", "Due Date"]],
-            body: summaries.map(s => [
-                s.batch_description,
-                s.amount.toLocaleString(),
-                s.total_students,
-                s.paid_students,
-                s.pending_students,
-                new Date(s.due_date).toLocaleDateString()
-            ])
-        });
-        doc.save(`Invoice_Summary_${new Date().toISOString().split('T')[0]}.pdf`);
-    } else {
-        const csv = Papa.unparse(summaries);
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `Invoice_Summary_${new Date().toISOString().split('T')[0]}.csv`;
-        link.click();
-    }
-    toast.success("Invoices exported successfully!");
-  };
 
   const handleEditClick = async (summary: InvoiceSummary) => {
     setEditingBatch(summary);
@@ -225,12 +157,6 @@ export default function InvoicesPage() {
               <CardDescription>Auditable list of generated invoice batches.</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => handleExport('csv')} className="gap-1 border-emerald-200 text-emerald-700">
-                <FileSpreadsheet className="h-3.5 w-3.5" /> Export Excel
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => handleExport('pdf')} className="gap-1">
-                <Download className="h-3.5 w-3.5" /> PDF
-              </Button>
               {selectedItems.length > 0 && (
                 <Button variant="destructive" size="sm" onClick={() => setDeleteAlertOpen(true)}>
                   <Trash2 className="h-3.5 w-3.5" /> Delete ({selectedItems.length})
