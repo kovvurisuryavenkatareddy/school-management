@@ -3,7 +3,10 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Search, Loader2, UserPlus, Check, FilterX, Users } from "lucide-react";
+import { ArrowLeft, Trash2, Search, Loader2, UserPlus, Check, FilterX, Users, FileSpreadsheet, Download } from "lucide-react";
+import Papa from "papaparse";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -179,6 +182,40 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
     setDeleteId(null);
   };
 
+  const handleExport = (format: 'csv' | 'pdf') => {
+    if (invoices.length === 0) {
+        toast.info("No data to export.");
+        return;
+    }
+
+    const dataToExport = invoices.map(inv => ({
+        "Roll Number": inv.students.roll_number,
+        "Student Name": inv.students.name,
+        "Status": inv.status.toUpperCase(),
+        "Amount": batchInfo?.amount || 0,
+        "Due Date": batchInfo?.due_date || ""
+    }));
+
+    if (format === 'pdf') {
+        const doc = new jsPDF();
+        doc.text(`Invoice Batch: ${batchInfo?.description || 'Batch Details'}`, 14, 15);
+        autoTable(doc, {
+            startY: 25,
+            head: [["Roll Number", "Student Name", "Status", "Amount"]],
+            body: dataToExport.map(row => [row["Roll Number"], row["Student Name"], row["Status"], row["Amount"]])
+        });
+        doc.save(`Batch_${batchId}.pdf`);
+    } else {
+        const csv = Papa.unparse(dataToExport);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `Batch_${batchId}.csv`;
+        link.click();
+    }
+    toast.success("Batch records exported successfully!");
+  };
+
   const handleAddStudent = async (studentId: string, silent: boolean = false) => {
     if (invoices.some(inv => inv.students.id === studentId)) {
         if (!silent) toast.error("Student is already in this batch.");
@@ -292,7 +329,7 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
                 <Button variant="outline" size="icon" asChild>
                 <Link href="/billing">
@@ -306,9 +343,17 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
                 </CardDescription>
                 </div>
             </div>
-            <Button onClick={() => setAddStudentDialogOpen(true)} className="gap-2">
-                <UserPlus className="h-4 w-4" /> Add Student to Batch
-            </Button>
+            <div className="flex items-center flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => handleExport('csv')} className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+                    <FileSpreadsheet className="h-4 w-4" /> Export Excel
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleExport('pdf')} className="gap-2">
+                    <Download className="h-4 w-4" /> Export PDF
+                </Button>
+                <Button onClick={() => setAddStudentDialogOpen(true)} className="gap-2">
+                    <UserPlus className="h-4 w-4" /> Add Student
+                </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
