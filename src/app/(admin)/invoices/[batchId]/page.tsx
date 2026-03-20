@@ -107,9 +107,17 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
         status: row.status,
         paid_amount: row.paid_amount || 0,
         total_amount: row.total_amount || 0,
-        students: row.students
-          ? { id: row.students.id, roll_number: row.students.roll_number, name: row.students.name }
-          : { id: "N/A", roll_number: "N/A", name: "Student not found" },
+        students: (() => {
+          const s = row.students;
+          const first = Array.isArray(s) ? s[0] : s;
+          return first
+            ? {
+                id: String(first.id),
+                roll_number: String(first.roll_number),
+                name: String(first.name),
+              }
+            : { id: "N/A", roll_number: "N/A", name: "Student not found" };
+        })(),
       }));
 
       setInvoices(normalized);
@@ -306,7 +314,24 @@ export default function InvoiceBatchDetailPage({ params }: { params: { batchId: 
             amount: batchInfo.amount
         });
 
-        const normalizedInvoice = newInvoice as StudentInvoice;
+        const normalizedInvoice: StudentInvoice = (() => {
+          const raw: any = newInvoice;
+          const s = raw.students;
+          const first = Array.isArray(s) ? s[0] : s;
+          return {
+            id: String(raw.id),
+            status: raw.status,
+            paid_amount: raw.paid_amount || 0,
+            total_amount: raw.total_amount || 0,
+            students: first
+              ? {
+                  id: String(first.id),
+                  roll_number: String(first.roll_number),
+                  name: String(first.name),
+                }
+              : { id: "N/A", roll_number: "N/A", name: "Student not found" },
+          };
+        })();
         if (!silent) {
             setInvoices(prev => [...prev, normalizedInvoice]);
             toast.success("Student added successfully!");
